@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="EdgeLab: probabilidades de fútbol con modelo estadístico frente al mercado, actualizadas automáticamente.">
+<title>EdgeLab · Análisis de fútbol</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2300d1a0'/%3E%3Cpath d='M7 21l6-7 4 4 8-10' stroke='%23062' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app" id="app">
+  <aside class="side" aria-label="Navegación principal">
+    <div class="brand"><i><svg class="ic" viewBox="0 0 24 24"><path d="M3 17l6-7 4 4 8-10"/></svg></i><div>EdgeLab<small>Análisis de fútbol</small></div></div>
+    <nav id="nav"></nav>
+    <div class="filters" id="filters"></div>
+    <div class="sp"></div>
+    <div class="foot">Solo informativo. No es asesoría financiera ni garantiza resultados. +18 · Juega con responsabilidad.</div>
+  </aside>
+
+  <header class="top">
+    <label class="search"><svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <span class="sr">Buscar equipo</span><input id="q" type="search" placeholder="Buscar equipo o liga…" autocomplete="off"><kbd>/</kbd></label>
+    <span class="pill upd" id="upd"><span class="dot"></span><span id="updt">cargando…</span></span>
+    <span style="flex:1"></span>
+    <div class="themeseg" id="themeseg" role="group" aria-label="Tema de color"><button data-theme="light" title="Tema claro (blanco)"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M5 19l1.5-1.5M17.5 6.5L19 5"/></svg><span>Claro</span></button><button data-theme="dark" title="Tema oscuro"><svg class="ic" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg><span>Oscuro</span></button><button data-theme="auto" title="Seguir el tema del dispositivo"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg><span>Auto</span></button></div>
+    <button class="iconbtn" id="slipbtn" aria-label="Abrir boleta" title="Boleta"><svg class="ic" viewBox="0 0 24 24"><path d="M3 9a2 2 0 0 0 0 6v3h18v-3a2 2 0 0 1 0-6V6H3z"/><path d="M13 6v12" stroke-dasharray="2 3"/></svg><span class="badge" id="slipcnt" hidden>0</span></button>
+  </header>
+
+  <main class="main" id="main"></main>
+  <aside class="detail" id="detail" aria-label="Detalle"></aside>
+  <div class="scrim" id="scrim"></div>
+</div>
+<nav class="bottomnav" id="bnav" aria-label="Navegación"></nav>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script src="app.js"></script>
+</body>
+</html>

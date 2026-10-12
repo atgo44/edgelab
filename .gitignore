@@ -1,0 +1,14 @@
+cache/
+__pycache__/
+bets.json
+app.log
+site/data/
+.env
+artifact/
+export.log
+
+/index.html
+app.py
+build_artifact.py
+site.log
+odds/
