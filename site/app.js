@@ -31,7 +31,7 @@ const ic=(n,c='')=>`<svg class="ic ${c}" viewBox="0 0 24 24" aria-hidden="true">
 
 const S={data:null,res:[],ligas:new Set(),w:LS.get('el.w',75)/100,only:LS.get('el.only',false),q:'',range:'all',
   view:LS.get('el.view','partidos'),sel:null,panel:'detalle',dtab:'resumen',slip:new Map(),
-  bets:LS.get('el.bets',[]),bank:LS.get('el.bank',1000),bank0:LS.get('el.bank0',null),plan:{perfil:LS.get('el.perfil','mod'),n:LS.get('el.nplan',5),saldo:null},theme:LS.get('el.theme','auto')};
+  bets:LS.get('el.bets',[]),bank:LS.get('el.bank',1000),bank0:LS.get('el.bank0',null),tomb:LS.get('el.tomb',{}),sync:{tok:LS.get('el.gtok',''),gist:LS.get('el.gist',''),last:LS.get('el.glast',null),msg:'',busy:false},plan:{perfil:LS.get('el.perfil','mod'),n:LS.get('el.nplan',5),saldo:null},theme:LS.get('el.theme','auto')};
 
 /* ===================== cálculo ===================== */
 const key=m=>`${m.liga}|${m.home}|${m.away}|${m.fecha}`;
@@ -170,7 +170,7 @@ async function init(){
   setInterval(refrescarResultados,180000);
   const h=(Date.now()-new Date(S.data.meta.generado))/36e5;
   $('updt').textContent='Actualizado '+ago(S.data.meta.generado);$('upd').querySelector('.dot').classList.toggle('old',h>12);
-  validar(true);buildNav();render();
+  validar(true);buildNav();render();sincronizar(false);
   if(!narrow()){const f=visible()[0];if(f&&!S.sel){S.sel=f.k;renderDetail()}else renderDetail()}else renderDetail();
 }
 
@@ -289,6 +289,93 @@ function viewTop(){
   <div class="two" style="align-items:start">${risky.slice(0,10).map(li).join('')||'<div class="empty">Sin opciones arriesgadas ahora.</div>'}</div>`;
 }
 
+/* ===================== guardar y sincronizar el historial ===================== */
+const GIST_FILE='edgelab.json',GIST_DESC='EdgeLab historial';
+function persistBets(){LS.set('el.bets',S.bets);programarSync()}
+let _syncT=0;
+function programarSync(){if(!S.sync.tok)return;clearTimeout(_syncT);_syncT=setTimeout(()=>sincronizar(false),2500)}
+function mergeBets(local,remote,tl,tr){
+  const tomb={...tr};Object.keys(tl).forEach(k=>{tomb[k]=Math.max(tl[k]||0,tr[k]||0)});
+  const m=new Map();
+  [...remote,...local].forEach(b=>{const o=m.get(b.id);if(!o||(b.u||0)>=(o.u||0))m.set(b.id,b)});
+  const bets=[...m.values()].filter(b=>!(tomb[b.id]&&tomb[b.id]>=(b.u||0))).sort((a,b)=>b.ts.localeCompare(a.ts));
+  return {bets,tomb};
+}
+const gh=(path,opt={})=>fetch('https://api.github.com'+path,{...opt,headers:{'Accept':'application/vnd.github+json','Authorization':'Bearer '+S.sync.tok,'Content-Type':'application/json',...(opt.headers||{})}});
+async function sincronizar(manual){
+  if(!S.sync.tok||S.sync.busy||window.__EL__)return;
+  S.sync.busy=true;
+  try{
+    if(!S.sync.gist){                                   // buscar o crear el Gist privado
+      const l=await gh('/gists?per_page=100');
+      if(l.status===401)throw new Error('El token no es válido o caducó.');
+      if(!l.ok)throw new Error('GitHub respondió '+l.status);
+      const f=(await l.json()).find(g=>g.description===GIST_DESC&&g.files&&g.files[GIST_FILE]);
+      if(f)S.sync.gist=f.id;
+      else{
+        const c=await gh('/gists',{method:'POST',body:JSON.stringify({description:GIST_DESC,public:false,files:{[GIST_FILE]:{content:JSON.stringify({v:1,bets:S.bets,tomb:S.tomb})}}})});
+        if(!c.ok)throw new Error('No se pudo crear el Gist ('+c.status+'). El token necesita el permiso «gist».');
+        S.sync.gist=(await c.json()).id;
+      }
+      LS.set('el.gist',S.sync.gist);
+    }
+    const r=await gh('/gists/'+S.sync.gist);
+    if(!r.ok)throw new Error('No se pudo leer el historial en la nube ('+r.status+').');
+    const j=await r.json(),file=j.files&&j.files[GIST_FILE];
+    let remote={bets:[],tomb:{}};
+    if(file){try{remote=JSON.parse(file.content)}catch(e){}}
+    const m=mergeBets(S.bets,remote.bets||[],S.tomb,remote.tomb||{});
+    const cambioLocal=JSON.stringify(m.bets)!==JSON.stringify(S.bets);
+    S.bets=m.bets;S.tomb=m.tomb;LS.set('el.bets',S.bets);LS.set('el.tomb',S.tomb);
+    const igual=JSON.stringify((remote.bets||[]).map(b=>b.id+':'+(b.u||0)+b.estado).sort())===JSON.stringify(m.bets.map(b=>b.id+':'+(b.u||0)+b.estado).sort());
+    if(!igual){
+      const w=await gh('/gists/'+S.sync.gist,{method:'PATCH',body:JSON.stringify({files:{[GIST_FILE]:{content:JSON.stringify({v:1,bets:S.bets,tomb:S.tomb})}}})});
+      if(!w.ok)throw new Error('No se pudo guardar en la nube ('+w.status+').');
+    }
+    S.sync.last=Date.now();LS.set('el.glast',S.sync.last);S.sync.msg='';
+    if(cambioLocal){buildNav();if(S.view==='historial'||S.view==='plan')keepScroll(renderMain)}
+    if(manual)toast('Historial sincronizado con tu cuenta de GitHub');
+  }catch(e){
+    S.sync.msg=String(e.message||e).includes('Failed to fetch')?'Sin conexión con GitHub.':String(e.message||e);
+    if(manual)toast(S.sync.msg);
+  }finally{S.sync.busy=false;if(S.view==='historial')keepScroll(renderMain)}
+}
+function exportarHistorial(){
+  const txt=JSON.stringify({v:1,bets:S.bets,tomb:S.tomb});
+  const mostrar=()=>{const t=$('imp');if(t){t.value=txt;t.focus();t.select()}};
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt).then(()=>toast('Historial copiado: pégalo en el otro dispositivo o sitio'),()=>{mostrar();toast('Selecciona y copia el texto del recuadro')})}
+  else{mostrar();toast('Selecciona y copia el texto del recuadro')}
+}
+function importarHistorial(){
+  const t=$('imp');if(!t||!t.value.trim())return toast('Pega primero el historial copiado');
+  try{
+    const j=JSON.parse(t.value),m=mergeBets(S.bets,j.bets||[],S.tomb,j.tomb||{});
+    const nuevas=m.bets.length-S.bets.length;
+    S.bets=m.bets;S.tomb=m.tomb;LS.set('el.tomb',S.tomb);persistBets();validar(false);buildNav();render();
+    toast(nuevas>0?`Importadas ${nuevas} apuesta${nuevas>1?'s':''}`:'Historial actualizado');
+  }catch(e){toast('El texto no es un historial válido')}
+}
+function panelSync(){
+  const st=S.sync,emb=!!window.__EL__;
+  let h=`<div class="card" style="margin-bottom:10px"><b style="font-size:13px">Guardar y sincronizar tu historial</b>`;
+  if(emb)h+=`<div class="note">Esta versión (claude.ai) guarda el historial solo en este navegador y no puede sincronizarlo. Para tenerlo en todos tus dispositivos usa <a href="https://atgo44.github.io/edgelab/" target="_blank" rel="noopener" style="color:var(--ac)">atgo44.github.io/edgelab</a>: copia tu historial aquí y pégalo allí.</div>`;
+  else if(st.tok)h+=`<div class="row" style="margin-top:8px"><span class="pill"><span class="dot ${st.msg?'old':''}"></span>${st.msg?esc(st.msg):'Sincronizado con tu Gist privado de GitHub'}${st.last&&!st.msg?' · '+ago(new Date(st.last).toISOString()):''}</span>
+      <button class="btn sm" id="sync-now">Sincronizar ahora</button><button class="btn ghost sm" id="sync-off">Desconectar</button></div>
+      <div class="note">El historial se guarda en un Gist <b>privado</b> de tu cuenta y se une automáticamente entre tus dispositivos. El token queda solo en este navegador.</div>`;
+  else h+=`<div class="note">Tu historial se guarda en este navegador. Para verlo desde cualquier dispositivo, conéctalo a tu cuenta de GitHub (se guarda en un Gist privado tuyo):</div>
+      <ol class="tx2" style="padding-left:18px;font-size:13px;line-height:1.7;margin:6px 0">
+        <li>Crea un token: <a href="https://github.com/settings/tokens/new?scopes=gist&description=EdgeLab" target="_blank" rel="noopener" style="color:var(--ac)">github.com/settings/tokens/new</a>. Debe tener <b>solo</b> el permiso «gist».</li>
+        <li>Pégalo aquí y pulsa Conectar.</li></ol>
+      <div class="row"><input class="inp" id="gtok" type="password" placeholder="ghp_… (permiso gist)" autocomplete="off" style="width:min(280px,100%);text-align:left"><button class="btn sm" id="sync-on">Conectar</button></div>
+      ${st.msg?`<div class="note" style="color:var(--red)">${esc(st.msg)}</div>`:''}`;
+  h+=`<details class="acc" style="margin-top:10px"><summary>${ic('chev')}Copiar / importar historial<span class="sm">pasar apuestas entre sitios o dispositivos</span></summary><div class="ab">
+      <div class="row"><button class="btn sm" id="exp-copy">Copiar mi historial</button></div>
+      <div class="note">Pega aquí un historial copiado en otro sitio o dispositivo y pulsa Importar (se une al que ya tienes, sin duplicar).</div>
+      <textarea id="imp" rows="3" class="inp" style="width:100%;height:auto;padding:8px;text-align:left;font-family:monospace;font-size:12px" placeholder="Pega aquí el historial copiado"></textarea>
+      <div class="row" style="margin-top:6px"><button class="btn sm ghost" id="imp-go">Importar</button></div></div></details></div>`;
+  return h;
+}
+
 /* ---------- rentabilidad ---------- */
 const closed=b=>b.estado==='ganada'||b.estado==='perdida';
 const profitOf=b=>b.estado==='ganada'?b.monto*(b.cuota-1):b.estado==='perdida'?-b.monto:0;
@@ -375,7 +462,7 @@ function viewHist(){
         return `<div class="gr"><div class="gl" title="${esc(g.k)}">${esc(g.k)}<small>${g.n} ap. · acierto ${pc(g.hit,0)} (esperado ${pc(g.expHit,0)})${g.n<5?' · muestra pequeña':''}</small></div>
           <div class="gb"><i style="width:${w}%;background:${g.roi>=0?'var(--good)':'var(--bad)'}"></i></div><b class="num ${g.roi>=0?'good':'bad'}">${g.roi>=0?'+':''}${pc(g.roi,0)}</b></div>`}).join('')}</div>`).join('')}</div></div>`;
   }
-  h+=`<div class="sec"><h3>Apuestas guardadas</h3></div>`;
+  h+=`<div class="sec"><h3>Apuestas guardadas</h3></div>`+panelSync();
   if(!S.bets.length)return h+`<div class="empty"><b>Aún no hay apuestas</b>Añade selecciones a la boleta y guárdalas, o registra el plan de apuestas.</div>`;
   h+=`<div class="card" style="padding:4px 4px"><div class="scroll"><table class="tbl"><thead><tr><th>Fecha</th><th>Selecciones</th><th>Cuota</th><th>Prob.</th><th>Monto</th><th>Ganancia</th><th>Estado</th><th></th></tr></thead><tbody>
   ${S.bets.map(b=>{const pf=profitOf(b);return `<tr class="b-${b.estado}"><td class="num">${new Date(b.ts).toLocaleDateString('es')}</td>
@@ -443,10 +530,10 @@ function viewPlan(){
 function registrarPlan(items){
   const pl=items;
   pl.forEach(x=>{
-    S.bets.unshift({id:Date.now().toString(36)+Math.random().toString(36).slice(2,5),ts:new Date().toISOString(),monto:x.monto,cuota:x.o,p:x.p,estado:'pendiente',
+    S.bets.unshift({id:Date.now().toString(36)+Math.random().toString(36).slice(2,5),ts:new Date().toISOString(),u:Date.now(),monto:x.monto,cuota:x.o,p:x.p,estado:'pendiente',
       legs:[{home:x.m.home,away:x.m.away,fecha:x.m.fecha,liga:x.m.liga,id:x.id,sel:x.id,cat:x.cat,apuesta:x.t,o:x.o,src:'casa',p:x.p}]});
   });
-  LS.set('el.bets',S.bets);validar(false);buildNav();
+  persistBets();validar(false);buildNav();
 }
 
 /* ---------- resultados: ¿salieron las recomendaciones? ---------- */
@@ -689,9 +776,9 @@ function refreshSlip(){$('slipcnt').textContent=S.slip.size;$('slipcnt').hidden=
 function keepScroll(fn){const y=$('main').scrollTop;fn();$('main').scrollTop=y}
 function saveBet(){
   const {L,o,p}=totals();if(!L.length)return;
-  S.bets.unshift({id:Date.now().toString(36),ts:new Date().toISOString(),monto:+$('amt').value||0,cuota:o,p,estado:'pendiente',
+  S.bets.unshift({id:Date.now().toString(36),ts:new Date().toISOString(),u:Date.now(),monto:+$('amt').value||0,cuota:o,p,estado:'pendiente',
     legs:L.map(l=>({home:l.m.home,away:l.m.away,fecha:l.m.fecha,liga:l.m.liga,id:l.id,sel:l.id,cat:l.cat,apuesta:l.apuesta,o:lo(l),src:lsrc(l),p:l.p}))});
-  LS.set('el.bets',S.bets);S.slip.clear();settleAuto();S.panel='detalle';buildNav();refreshSlip();toast('Guardado en tu historial');
+  persistBets();S.slip.clear();settleAuto();S.panel='detalle';buildNav();refreshSlip();toast('Guardado en tu historial');
 }
 const hit=(s,hg,ag)=>({'1':hg>ag,'X':hg===ag,'2':hg<ag,'O2.5':hg+ag>=3,'U2.5':hg+ag<=2})[s];
 function legHit(l,r){
@@ -707,8 +794,8 @@ function settleAuto(){
   let n=0,g=0,p=0;
   S.bets.forEach(b=>{if(b.estado!=='pendiente')return;
     const r=b.legs.map(l=>{const x=S.res.filter(r=>r.h===l.home&&r.a===l.away&&r.d>=l.fecha).pop();return x?legHit(l,x):null});
-    if(r.includes(false)){b.estado='perdida';n++;p++}else if(r.length&&r.every(v=>v===true)){b.estado='ganada';n++;g++}});
-  if(n)LS.set('el.bets',S.bets);
+    if(r.includes(false)){b.estado='perdida';b.u=Date.now();n++;p++}else if(r.length&&r.every(v=>v===true)){b.estado='ganada';b.u=Date.now();n++;g++}});
+  if(n)persistBets();
   return {n,g,p};
 }
 /* validación automática: al cargar, cada minuto y cada vez que llegan resultados nuevos */
@@ -736,7 +823,7 @@ async function refrescarResultados(){
       keepScroll(render);renderDetail();
     }
   }catch(e){return}
-  validar(true);
+  validar(true);sincronizar(false);
 }
 const pendNote=b=>{
   const f=b.legs.map(l=>l.fecha).sort().pop(),ayer=new Date(Date.now()-2*864e5).toISOString().slice(0,10);
@@ -765,7 +852,7 @@ document.addEventListener('click',e=>{
   if((b=t.closest('[data-panel]'))){S.panel=b.dataset.panel;renderDetail();return}
   if((b=t.closest('[data-dtab]'))){S.dtab=b.dataset.dtab;renderDetail();return}
   if((b=t.closest('[data-rm]'))){S.slip.delete(b.dataset.rm);refreshSlip();return}
-  if((b=t.closest('[data-del]'))){S.bets=S.bets.filter(x=>x.id!==b.dataset.del);LS.set('el.bets',S.bets);buildNav();render();return}
+  if((b=t.closest('[data-del]'))){S.tomb[b.dataset.del]=Date.now();LS.set('el.tomb',S.tomb);S.bets=S.bets.filter(x=>x.id!==b.dataset.del);persistBets();buildNav();render();return}
   if((b=t.closest('[data-perfil]'))){S.plan.perfil=b.dataset.perfil;LS.set('el.perfil',S.plan.perfil);keepScroll(renderMain);return}
   if((b=t.closest('[data-nplan]'))){S.plan.n=+b.dataset.nplan;LS.set('el.nplan',S.plan.n);keepScroll(renderMain);return}
   if((b=t.closest('[data-plan-reg]'))){
@@ -776,6 +863,12 @@ document.addEventListener('click',e=>{
     const sal=S.plan.saldo!=null?S.plan.saldo:Math.round(Math.max(0,(S.bank0!=null?S.bank0:S.bank)+S.bets.filter(closed).reduce((a,q)=>a+profitOf(q),0)-S.bets.filter(q=>q.estado==='pendiente').reduce((a,q)=>a+q.monto,0)));
     const items=planPicks(sal).top.filter(x=>!S.bets.some(q=>q.estado==='pendiente'&&q.legs.length===1&&q.legs[0].home===x.m.home&&q.legs[0].away===x.m.away&&(q.legs[0].id||q.legs[0].sel)===x.id));
     registrarPlan(items);toast(items.length+' apuestas registradas');keepScroll(renderMain);return}
+  if(t.closest('#sync-on')){const v=($('gtok')||{}).value||'';if(v.trim().length<20)return toast('Pega el token completo');
+    S.sync.tok=v.trim();S.sync.gist='';S.sync.msg='';LS.set('el.gtok',S.sync.tok);LS.set('el.gist','');sincronizar(true);return}
+  if(t.closest('#sync-now')){sincronizar(true);return}
+  if(t.closest('#sync-off')){S.sync.tok='';S.sync.gist='';S.sync.last=null;S.sync.msg='';LS.set('el.gtok','');LS.set('el.gist','');LS.set('el.glast',null);toast('Desconectado: tu historial sigue en este navegador');keepScroll(renderMain);return}
+  if(t.closest('#exp-copy')){exportarHistorial();return}
+  if(t.closest('#imp-go')){importarHistorial();return}
   if(t.closest('#save')){saveBet();return}
   if(t.closest('#clear')){S.slip.clear();refreshSlip();return}
   if(t.closest('#dclose')||t.id==='scrim'){closeDetail();return}
@@ -805,7 +898,7 @@ document.addEventListener('change',e=>{
   if(t.id==='bank'){renderDetail()}
   else if(t.dataset&&t.dataset.f==='saldo'){S.plan.saldo=Math.max(0,+t.value||0);keepScroll(renderMain)}
   else if(t.dataset&&t.dataset.f==='bank0'){S.bank0=Math.max(0,+t.value||0);LS.set('el.bank0',S.bank0);keepScroll(renderMain)}
-  else if(t.dataset&&t.dataset.bet){const b=S.bets.find(x=>x.id===t.dataset.bet);if(b){b.estado=t.value;LS.set('el.bets',S.bets);render()}}
+  else if(t.dataset&&t.dataset.bet){const b=S.bets.find(x=>x.id===t.dataset.bet);if(b){b.estado=t.value;b.u=Date.now();persistBets();render()}}
 });
 document.addEventListener('keydown',e=>{
   const tag=(e.target.tagName||'').toLowerCase();
@@ -820,4 +913,5 @@ document.addEventListener('keydown',e=>{
   }
 });
 window.addEventListener('resize',()=>{if(!overlay())closeDetail()});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)sincronizar(false)});
 init();
