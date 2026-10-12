@@ -2,7 +2,7 @@ name: Actualizar y publicar
 
 on:
   schedule:
-    - cron: "0 */6 * * *"   # cada 6 horas (UTC)
+    - cron: "*/10 * * * *"   # cada 10 minutos (GitHub puede retrasarlo unos minutos)
   workflow_dispatch: {}
   push:
     branches: [main]
@@ -29,7 +29,9 @@ jobs:
       - name: Historial de predicciones (para marcar aciertos y fallos)
         uses: actions/cache@v4
         with:
-          path: cache/pred_history.json
+          path: |
+            cache/pred_history.json
+            cache/backtest.json
           key: pred-${{ github.run_id }}
           restore-keys: pred-
       - name: Generar datos

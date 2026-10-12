@@ -11,6 +11,7 @@ import pandas as pd
 
 import backtest
 import cuotas_pe
+import espn_res
 import data
 import peru
 from engine import SEL, _odd
@@ -19,6 +20,8 @@ from model import CountModel, DixonColes
 sys.stdout.reconfigure(encoding="utf-8")
 OUT = Path(__file__).parent / "site" / "data"
 HIST = Path(__file__).parent / "cache" / "pred_history.json"
+BT_CACHE = Path(__file__).parent / "cache" / "backtest.json"
+BT_HORAS = 24
 DIAS_HIST = 21
 ODDS_COLS = {s: (v[0], v[1]) for s, v in SEL.items()}
 
@@ -274,6 +277,12 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
 
     todos, resultados, bt, ligas = [], [], {}, {}
+    bt_prev, bt_fresco = {}, False
+    try:
+        if BT_CACHE.exists() and (pd.Timestamp.now() - pd.Timestamp(BT_CACHE.stat().st_mtime, unit='s')).total_seconds() < BT_HORAS * 3600 + 7200:
+            bt_prev, bt_fresco = json.loads(BT_CACHE.read_text(encoding='utf-8')), True
+    except Exception:
+        bt_prev, bt_fresco = {}, False
     for div in a.ligas:
         if div == "PER" and not peru.disponible():
             print("[PER] omitida: falta API_FOOTBALL_KEY")
@@ -295,11 +304,24 @@ def main():
                         "st": _n(getattr(r, "HST", np.nan) + getattr(r, "AST", np.nan)),
                         "s": _n(getattr(r, "HS", np.nan) + getattr(r, "AS", np.nan))}
                        for r in rec.itertuples()]
-        if not a.sin_backtest and div != "PER":
+        if div != "PER":
+            try:  # resultados casi en vivo de ESPN (football-data tarda horas)
+                ya = {(x["h"], x["a"], x["d"]) for x in resultados if x["liga"] == div}
+                for x in espn_res.recientes(div, set(hist.HomeTeam) | set(hist.AwayTeam)):
+                    if (x["h"], x["a"], x["d"]) not in ya:
+                        resultados.append(x)
+            except Exception as ex:
+                print("  ESPN resultados:", ex)
+        if not a.sin_backtest and div != "PER" and bt_fresco and div in bt_prev:
+            bt[div] = bt_prev[div]
+        elif not a.sin_backtest and div != "PER":
             r = backtest.run(div, n=150, paso=21)
             if r:
                 bt[div] = {"n": r["n"], "logloss": {str(k): round(v, 4) for k, v in r["logloss"].items()}}
 
+    if bt and not bt_fresco:
+        BT_CACHE.parent.mkdir(exist_ok=True)
+        BT_CACHE.write_text(json.dumps(bt, ensure_ascii=False), encoding='utf-8')
     if a.sin_backtest and not bt:  # conserva el backtest previo si no se recalcula
         try:
             bt = json.loads((OUT / "picks.json").read_text(encoding="utf-8"))["meta"].get("backtest", {})

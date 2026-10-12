@@ -167,7 +167,7 @@ async function init(){
   S.todos=S.data.partidos.concat((S.data.recientes||[]).filter(r=>!S.data.partidos.some(p=>key(p)===key(r))));aplicarEstado();
   setInterval(()=>{const antes=S.data.partidos.map(m=>key(m)+m.est).join();aplicarEstado();
     if(antes!==S.data.partidos.map(m=>key(m)+m.est).join()){if(S.sel&&!S.data.partidos.some(m=>key(m)===S.sel))S.sel=null;keepScroll(render);renderDetail()}validar(true)},60000);
-  setInterval(refrescarResultados,600000);
+  setInterval(refrescarResultados,180000);
   const h=(Date.now()-new Date(S.data.meta.generado))/36e5;
   $('updt').textContent='Actualizado '+ago(S.data.meta.generado);$('upd').querySelector('.dot').classList.toggle('old',h>12);
   validar(true);buildNav();render();
@@ -364,7 +364,7 @@ function viewHist(){
     <div class="kpi"><div class="l">Saldo estimado</div><div class="v num">${saldo.toFixed(2)}</div></div>
   </div>
   <div class="card row" style="gap:14px;margin-bottom:8px"><label class="mut" style="font-size:12px">Banca inicial<br><input class="inp num" type="number" min="0" data-f="bank0" value="${b0}" style="width:110px"></label>
-    <span class="mut" style="font-size:12px;max-width:60ch">Saldo estimado = banca inicial + beneficio de apuestas cerradas. Disponible para apostar: <b class="num" style="color:var(--tx)">${(saldo-enJuego).toFixed(2)}</b> (descontando lo que está en juego).<br>Validación automática activa: se comprueba cada minuto${S.res&&S.res.length?` con ${S.res.length} resultados recientes`:''}${window.__EL__?'':' y los resultados se recargan cada 10 minutos'}. Datos generados ${ago(S.data.meta.generado)}.</span></div>`;
+    <span class="mut" style="font-size:12px;max-width:60ch">Saldo estimado = banca inicial + beneficio de apuestas cerradas. Disponible para apostar: <b class="num" style="color:var(--tx)">${(saldo-enJuego).toFixed(2)}</b> (descontando lo que está en juego).<br>Validación automática activa: se comprueba cada minuto${S.res&&S.res.length?` con ${S.res.length} resultados recientes`:''}${window.__EL__?'':' y los datos se recargan cada 3 minutos'}. Datos generados ${ago(S.data.meta.generado)}.</span></div>`;
   if(n){
     const ord=done.slice().sort((a,b)=>a.ts.localeCompare(b.ts));
     let c=0;const vals=[0];ord.forEach(b=>{c+=profitOf(b);vals.push(c)});
@@ -724,8 +724,17 @@ function validar(avisar){
 async function refrescarResultados(){
   if(window.__EL__)return;                       // versión embebida: los datos no cambian hasta republicar
   try{
-    const r=await fetch('data/results.json',{cache:'no-cache'}).then(x=>{if(!x.ok)throw 0;return x.json()});
+    const [d,r]=await Promise.all([fetch('data/picks.json',{cache:'no-cache'}).then(x=>{if(!x.ok)throw 0;return x.json()}),
+      fetch('data/results.json',{cache:'no-cache'}).then(x=>{if(!x.ok)throw 0;return x.json()})]);
     S.res=r;S.lastFetch=Date.now();
+    if(d.meta.generado!==S.data.meta.generado){          // llegaron partidos / cuotas nuevos
+      S.data=d;
+      S.todos=d.partidos.concat((d.recientes||[]).filter(q=>!d.partidos.some(p=>key(p)===key(q))));
+      aplicarEstado();
+      if(S.sel&&!S.data.partidos.some(m=>key(m)===S.sel))S.sel=null;
+      $('updt').textContent='Actualizado '+ago(d.meta.generado);
+      keepScroll(render);renderDetail();
+    }
   }catch(e){return}
   validar(true);
 }

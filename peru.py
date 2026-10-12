@@ -8,7 +8,7 @@ from pathlib import Path
 import pandas as pd
 import requests
 
-URL = "https://site.api.espn.com/apis/site/v2/sports/soccer/per.1/scoreboard"
+URL = "https://site.api.espn.com/apis/site/v2/sports/soccer/{slug}/scoreboard"
 CACHE = Path(__file__).parent / "cache"
 UTC_PERU = pd.Timedelta(hours=-5)
 STAT = {"wonCorners": "C", "totalShots": "S", "shotsOnTarget": "ST", "foulsCommitted": "F"}
@@ -18,11 +18,11 @@ def disponible() -> bool:
     return True
 
 
-def _season(year: int, max_age_h: float = 3) -> list:
-    f = CACHE / f"peru_espn_{year}.json"
+def _season(year: int, max_age_h: float = 0.05, slug: str = "per.1") -> list:
+    f = CACHE / (f"peru_espn_{year}.json" if slug == "per.1" else f"espn_{slug}_{year}.json")
     if f.exists() and time.time() - f.stat().st_mtime < max_age_h * 3600:
         return json.loads(f.read_text(encoding="utf-8"))
-    r = requests.get(URL, params={"dates": str(year), "limit": 500}, timeout=60,
+    r = requests.get(URL.format(slug=slug), params={"dates": str(year), "limit": 500}, timeout=60,
                      headers={"User-Agent": "Mozilla/5.0"})
     r.raise_for_status()
     ev = r.json().get("events", [])
