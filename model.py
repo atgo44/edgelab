@@ -57,8 +57,8 @@ class DixonColes:
         return all(e in self.att for e in equipos)
 
     def matriz(self, local: str, visita: str) -> np.ndarray:
-        lam = np.exp(self.att[local] + self.dfn[visita] + self.home)
-        mu = np.exp(self.att[visita] + self.dfn[local])
+        lam = float(np.clip(np.exp(self.att[local] + self.dfn[visita] + self.home), 0.2, 3.5))
+        mu = float(np.clip(np.exp(self.att[visita] + self.dfn[local]), 0.2, 3.5))
         k = np.arange(G)
         pl = np.exp(k * np.log(lam) - lam - gammaln(k + 1))
         pv = np.exp(k * np.log(mu) - mu - gammaln(k + 1))
@@ -113,6 +113,7 @@ class CountModel:
         self.att = dict(zip(self.teams, th[:n] - th[:n].mean()))
         self.dfn = dict(zip(self.teams, th[n:2 * n]))
         self.home = th[2 * n]
+        self.avg = float((w * (y1 + y2)).sum() / (2 * w.sum()))   # media por equipo y partido
         # sobredispersión del total: Var = m + m^2/r
         m = np.exp(th[:n][hi] - th[:n].mean() + th[n:2 * n][ai] + self.home) + \
             np.exp(th[:n][ai] - th[:n].mean() + th[n:2 * n][hi])
@@ -127,7 +128,8 @@ class CountModel:
     def medias(self, local, visita):
         lam = float(np.exp(self.att[local] + self.dfn[visita] + self.home))
         mu = float(np.exp(self.att[visita] + self.dfn[local]))
-        return lam, mu
+        lo, hi = 0.4 * self.avg, 2.0 * self.avg          # evita extrapolar con pocos partidos
+        return float(np.clip(lam, lo, hi)), float(np.clip(mu, lo, hi))
 
     def p_over(self, mean: float, linea: float) -> float:
         k = int(np.floor(linea))

@@ -57,7 +57,8 @@ function catOpts(m,c,all){
   }
   const lineas=(v,nombre,suf)=>{
     const o=m.vars&&m.vars[v];if(!o)return;const opts=[];
-    o.lineas.filter(L=>all||!LINEAS_OK[v]||LINEAS_OK[v].includes(L.l)).forEach(L=>{
+    const sel=o.lineas.filter(L=>all||!LINEAS_OK[v]||LINEAS_OK[v].includes(L.l));
+    (sel.length?sel:o.lineas).forEach(L=>{
       let po=L.o,co=null,cu=null,io=`${v}:O:${L.l}`,iu=`${v}:U:${L.l}`;const e=ex(v,L.l);
       if(v==='goles'&&L.l===2.5&&c['O2.5']){po=c['O2.5'].p;co=c['O2.5'].o;cu=c['U2.5'].o;io='O2.5';iu='U2.5'}
       else if(e){const pmk=(1/e.cuo)/(1/e.cuo+1/e.cuu);po=(1-w)*e.po+w*pmk;co=e.cuo;cu=e.cuu}
@@ -73,7 +74,7 @@ function catOpts(m,c,all){
     if(e){const pmk=(1/e.cuo)/(1/e.cuo+1/e.cuu);ps=(1-w)*e.po+w*pmk;cs=e.cuo;cn=e.cuu}
     cats.push({cat:'Ambos equipos anotan',opts:[{id:'btts:S',t:'Sí anotan ambos',p:ps,o:cs,e:cs?ps*cs-1:null},{id:'btts:N',t:'No anotan ambos',p:1-ps,o:cn,e:cn?(1-ps)*cn-1:null}]});
   }
-  return cats;
+  return cats.filter(k=>k.opts.length);
 }
 function recos(m,c){
   return catOpts(m,c,false).map(k=>{const ok=k.opts.filter(x=>x.p<=TRIV);
@@ -134,7 +135,7 @@ function koMs(m){
   const [y,mo,d]=m.fecha.split('-').map(Number);
   if(!m.hora)return Date.UTC(y,mo-1,d,23,59);            // sin hora: se considera todo el día
   const [h,mi]=m.hora.split(':').map(Number);
-  if(LIMA.has(m.liga))return Date.UTC(y,mo-1,d,h+5,mi);   // datos de ESPN: ya vienen en hora de Perú (UTC-5)
+  if(m.zona==='lima'||(!m.zona&&LIMA.has(m.liga)))return Date.UTC(y,mo-1,d,h+5,mi);   // datos de ESPN: ya vienen en hora de Perú (UTC-5)
   const g=Date.UTC(y,mo-1,d,h,mi);                        // hora del Reino Unido
   return g-(ukBST(g)?3600000:0);
 }
@@ -839,8 +840,17 @@ function applyTheme(){
 }
 
 /* ===================== eventos ===================== */
-function selectMatch(k){S.sel=k;S.panel='detalle';renderDetail();$('detail').scrollTop=0;openDetail();
-  document.querySelectorAll('.mrow').forEach(r=>r.classList.toggle('sel',r.dataset.k===k))}
+let _selEl=null;
+function marcarSel(k){            // solo toca la fila anterior y la nueva (no las 100)
+  if(_selEl&&_selEl.isConnected)_selEl.classList.remove('sel');
+  _selEl=null;
+  for(const r of document.querySelectorAll('#rows .mrow[data-k]')){if(r.dataset.k===k){r.classList.add('sel');_selEl=r;break}}
+}
+function selectMatch(k){
+  S.sel=k;S.panel='detalle';
+  if(!overlay()){marcarSel(k)}                       // respuesta inmediata en la lista
+  setTimeout(()=>{renderDetail();$("detail").scrollTop=0;openDetail()},0);
+}
 document.addEventListener('click',e=>{
   const t=e.target;let b;
   if((b=t.closest('[data-view]'))){setView(b.dataset.view);return}
@@ -910,7 +920,7 @@ document.addEventListener('keydown',e=>{
     const rows=[...document.querySelectorAll('.mrow[data-k]')];if(!rows.length)return;
     let i=rows.findIndex(r=>r.dataset.k===S.sel);i=e.key==='j'?Math.min(rows.length-1,i+1):Math.max(0,i-1);
     S.sel=rows[i].dataset.k;S.panel='detalle';renderDetail();
-    rows.forEach(r=>r.classList.toggle('sel',r.dataset.k===S.sel));rows[i].scrollIntoView({block:'nearest'});
+    marcarSel(S.sel);rows[i].scrollIntoView({block:'nearest'});
   }
 });
 window.addEventListener('resize',()=>{if(!overlay())closeDetail()});

@@ -207,13 +207,14 @@ def partidos(div: str, dias: int):
     fx = fx[(fx.Date >= hoy) & (fx.Date <= hoy + pd.Timedelta(days=dias))]
     if fx.empty:
         return [], hist
-    m = DixonColes().fit(hist)
+    reg = 2.0 if div in ESPN_COMPS else 0.5   # más regularización donde cada equipo juega pocos partidos
+    m = DixonColes(reg=reg).fit(hist)
     emp = cuotas_pe.emparejar(cuotas_pe.cargar(), m.teams) if div == "PER" else {}
     cm = {}
     for k, (hc, ac, _) in VARS.items():
         if hc in hist and hist[hc].notna().sum() >= 60:
             try:
-                cm[k] = CountModel().fit(hist, hc, ac)
+                cm[k] = CountModel(reg=reg).fit(hist, hc, ac)
             except Exception as e:
                 print(f"  {k}: {e}")
     out = []
@@ -263,6 +264,7 @@ def partidos(div: str, dias: int):
                                   po=round(float(pm["BTTS_SI"]), 4), cuo=b["si"], cuu=b["no"]))
         out.append({"liga": div, "fecha": r.Date.strftime("%Y-%m-%d"), "casa": casa, "extra": extra,
                     "hora": None if pd.isna(r.get("Time")) else str(r.get("Time")),
+                    "zona": "lima" if div in ESPN_COMPS else "uk",
                     "home": r.HomeTeam, "away": r.AwayTeam, "sel": sel,
                     "btts": round(float(pm["BTTS_SI"]), 4), "vars": vars_,
                     "ctx": {"home": contexto(hist, r.HomeTeam, "L", liga_prom), "away": contexto(hist, r.AwayTeam, "V", liga_prom),

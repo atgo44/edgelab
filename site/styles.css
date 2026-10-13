@@ -430,3 +430,7 @@ tr.b-pendiente>td:first-child,tr.b-anulada>td:first-child{box-shadow:inset 3px 0
 tr.b-ganada select{color:var(--good);font-weight:700}
 tr.b-perdida select{color:var(--red);font-weight:700}
 tr.b-pendiente select,tr.b-anulada select{color:var(--mut)}
+
+/* rendimiento: el navegador no calcula las filas que no se ven */
+#rows .mrow,.rcard{content-visibility:auto;contain-intrinsic-size:auto 96px}
+.mrow{transition:border-color .12s,box-shadow .12s}
