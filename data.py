@@ -13,6 +13,8 @@ LIGAS = {
     "E0": "Premier League", "SP1": "La Liga", "D1": "Bundesliga",
     "I1": "Serie A", "F1": "Ligue 1", "N1": "Eredivisie", "P1": "Primeira Liga",
     "PER": "Liga 1 Perú",
+    "UCL": "Champions League", "UEL": "Europa League",
+    "LIB": "Copa Libertadores", "SUD": "Copa Sudamericana",
 }
 
 

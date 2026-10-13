@@ -129,11 +129,12 @@ const DUR_MIN=130; // 90' + descanso + descuentos: pasado este tiempo se conside
 function ultimoDomingo(y,m){const d=new Date(Date.UTC(y,m+1,0));d.setUTCDate(d.getUTCDate()-d.getUTCDay());return d}
 function ukBST(ms){const y=new Date(ms).getUTCFullYear();
   const a=ultimoDomingo(y,2).setUTCHours(1,0,0,0),b=ultimoDomingo(y,9).setUTCHours(1,0,0,0);return ms>=a&&ms<b}
+const LIMA=new Set(['PER','UCL','UEL','LIB','SUD']);
 function koMs(m){
   const [y,mo,d]=m.fecha.split('-').map(Number);
   if(!m.hora)return Date.UTC(y,mo-1,d,23,59);            // sin hora: se considera todo el día
   const [h,mi]=m.hora.split(':').map(Number);
-  if(m.liga==='PER')return Date.UTC(y,mo-1,d,h+5,mi);     // hora de Perú (UTC-5)
+  if(LIMA.has(m.liga))return Date.UTC(y,mo-1,d,h+5,mi);   // datos de ESPN: ya vienen en hora de Perú (UTC-5)
   const g=Date.UTC(y,mo-1,d,h,mi);                        // hora del Reino Unido
   return g-(ukBST(g)?3600000:0);
 }
@@ -594,7 +595,7 @@ function viewFiab(){
     <div class="card"><h3 style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--mut);margin-bottom:8px">Límites</h3>
       <ul class="tx2" style="padding-left:18px;font-size:13px;line-height:1.7">
         <li>Solo el 1X2 está validado. Córners, tarjetas y tiros <b>no</b> tienen backtest contra mercado.</li>
-        <li>Liga 1 Perú: sin backtest ni cuotas salvo las de Betano de la jornada próxima.</li>
+        <li>Liga 1 Perú, Champions, Europa League, Libertadores y Sudamericana: sin cuotas de referencia ni backtest. Son solo estimaciones del modelo con pocos partidos por equipo; úsalas con más cautela. La Liga 1 solo tiene cuotas de Betano en la jornada próxima y fuera de la nube.</li>
         <li>No se consideran lesiones, alineaciones ni árbitro.</li>
         <li>Datos: football-data.co.uk, ESPN y Betano. Pueden retrasarse o cambiar.</li></ul></div>
   </div>`;

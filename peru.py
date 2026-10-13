@@ -76,25 +76,25 @@ def _row(e) -> dict:
     return row
 
 
-def _todo() -> pd.DataFrame:
+def _todo(slug: str = "per.1") -> pd.DataFrame:
     y = pd.Timestamp.today().year
     filas = []
     for año in (y, y - 1, y - 2):
         try:
-            filas += [_row(e) for e in _season(año)]
+            filas += [_row(e) for e in _season(año, slug=slug)]
         except Exception as ex:
-            print(f"  aviso Perú {año}: {ex}")
+            print(f"  aviso {slug} {año}: {ex}")
     d = pd.DataFrame(filas)
     return d.drop_duplicates(subset=["Date", "HomeTeam", "AwayTeam"]) if len(d) else d
 
 
-def historico() -> pd.DataFrame:
-    d = _todo()
+def historico(slug: str = "per.1") -> pd.DataFrame:
+    d = _todo(slug)
     d = d[d.completo].copy()
     d[["FTHG", "FTAG"]] = d[["FTHG", "FTAG"]].astype(int)
     return d.sort_values("Date").reset_index(drop=True)
 
 
-def proximos() -> pd.DataFrame:
-    d = _todo()
+def proximos(slug: str = "per.1") -> pd.DataFrame:
+    d = _todo(slug)
     return d[d.programado].sort_values("Date").reset_index(drop=True)

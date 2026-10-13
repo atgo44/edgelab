@@ -24,6 +24,9 @@ BT_CACHE = Path(__file__).parent / "cache" / "backtest.json"
 BT_HORAS = 24
 DIAS_HIST = 21
 ODDS_COLS = {s: (v[0], v[1]) for s, v in SEL.items()}
+# competiciones cuyos datos vienen de ESPN (sin cuotas en los datos gratuitos)
+ESPN_COMPS = {"PER": "per.1", "UCL": "uefa.champions", "UEL": "uefa.europa",
+              "LIB": "conmebol.libertadores", "SUD": "conmebol.sudamericana"}
 
 # variable -> (columna local, columna visita, nombre)
 VARS = {
@@ -194,8 +197,8 @@ def lineas_goles(m: DixonColes, home, away):
 
 
 def partidos(div: str, dias: int):
-    if div == "PER":
-        hist, fx = peru.historico(), peru.proximos()
+    if div in ESPN_COMPS:
+        hist, fx = peru.historico(ESPN_COMPS[div]), peru.proximos(ESPN_COMPS[div])
     else:
         hist, fx = data.historico(div), data.proximos(div)
     hist = preparar(hist)
@@ -304,7 +307,7 @@ def main():
                         "st": _n(getattr(r, "HST", np.nan) + getattr(r, "AST", np.nan)),
                         "s": _n(getattr(r, "HS", np.nan) + getattr(r, "AS", np.nan))}
                        for r in rec.itertuples()]
-        if div != "PER":
+        if div not in ESPN_COMPS:
             try:  # resultados casi en vivo de ESPN (football-data tarda horas)
                 ya = {(x["h"], x["a"], x["d"]) for x in resultados if x["liga"] == div}
                 for x in espn_res.recientes(div, set(hist.HomeTeam) | set(hist.AwayTeam)):
@@ -312,9 +315,9 @@ def main():
                         resultados.append(x)
             except Exception as ex:
                 print("  ESPN resultados:", ex)
-        if not a.sin_backtest and div != "PER" and bt_fresco and div in bt_prev:
+        if not a.sin_backtest and div not in ESPN_COMPS and bt_fresco and div in bt_prev:
             bt[div] = bt_prev[div]
-        elif not a.sin_backtest and div != "PER":
+        elif not a.sin_backtest and div not in ESPN_COMPS:
             r = backtest.run(div, n=150, paso=21)
             if r:
                 bt[div] = {"n": r["n"], "logloss": {str(k): round(v, 4) for k, v in r["logloss"].items()}}
