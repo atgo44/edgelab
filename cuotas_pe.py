@@ -24,8 +24,14 @@ import requests
 ARCHIVO = Path(__file__).parent / "odds" / "peru_odds.json"
 BETANO = "https://www.betano.pe/api/sports/FOOT/hot/trending/leagues/17079/events"
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-MAX_EDAD_H = 12
-ALIAS = {"utc cajamarca": "UTC", "utc": "UTC", "universitario deportes": "Universitario", "adc juan pablo ii college": "Juan Pablo II", "juan pablo ii college": "Juan Pablo II", "cd moquegua": "Deportivo Moquegua", "moquegua": "Deportivo Moquegua"}
+MAX_EDAD_H = 3
+REPO = __import__('os').environ.get('GITHUB_REPOSITORY', 'atgo44/edgelab')
+RAW = f'https://raw.githubusercontent.com/{REPO}/odds-data/peru_odds.json'
+ALIAS = {"utc cajamarca": "UTC", "utc": "UTC", "universitario deportes": "Universitario",
+         "adc juan pablo ii college": "Juan Pablo II", "juan pablo ii college": "Juan Pablo II",
+         "cd moquegua": "Deportivo Moquegua", "moquegua": "Deportivo Moquegua",
+         "los chankas cyc": "Los Chankas", "asociacion deportiva tarma": "ADT",
+         "club cienciano": "Cienciano del Cusco", "fbc melgar": "Melgar"}
 STOP = {"fc", "de", "del", "association", "asociacion", "club", "cd", "ca", "sc", "cf"}
 TIPOS = {"MRES": "1X2", "HCTG": "goles", "OUH1": "goles1t", "CNOU": "corners", "TCOU": "tarjetas", "BTSC": "btts"}
 
@@ -108,6 +114,17 @@ def cargar() -> list:
             print(f"  usando cuotas guardadas ({edad:.1f} h)")
             return j["eventos"]
         print(f"  cuotas guardadas demasiado antiguas ({edad:.0f} h): se ignoran")
+    try:  # cuotas publicadas desde un equipo con IP de Perú (la nube no puede leer Betano)
+        r = requests.get(RAW, timeout=20)
+        if r.ok:
+            j = r.json()
+            edad = (datetime.now(timezone.utc) - datetime.fromisoformat(j['generado'])).total_seconds() / 3600
+            if edad <= MAX_EDAD_H:
+                print(f"  usando cuotas publicadas desde Perú ({edad * 60:.0f} min)")
+                return j['eventos']
+            print(f"  cuotas publicadas demasiado antiguas ({edad:.1f} h)")
+    except Exception as ex:
+        print(f"  sin cuotas publicadas: {ex}")
     return []
 
 

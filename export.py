@@ -341,6 +341,11 @@ def main():
     except Exception:
         previo = {}
     actuales = {clave(m): m for m in todos}
+    pares = {(m["liga"], m["home"], m["away"]): m["fecha"] for m in todos}
+    def _reprogramado(v):  # mismo partido con otra fecha cercana: se descarta la versión vieja
+        f = pares.get((v["liga"], v["home"], v["away"]))
+        return f is not None and f != v["fecha"] and abs((pd.Timestamp(f) - pd.Timestamp(v["fecha"])).days) <= 14
+    previo = {k: v for k, v in previo.items() if not _reprogramado(v)}
     previo.update({k: {kk: vv for kk, vv in m.items() if kk != "ctx"} for k, m in actuales.items()})
     limite = (pd.Timestamp.today().normalize() - pd.Timedelta(days=DIAS_HIST)).strftime("%Y-%m-%d")
     previo = {k: v for k, v in previo.items() if v["fecha"] >= limite}

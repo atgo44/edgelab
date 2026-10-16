@@ -153,7 +153,7 @@ function aplicarEstado(){
     const d=new Date(koMs(m)-5*3600e3);                 // hora de Perú = UTC-5
     m.pf=d.toISOString().slice(0,10);m.ph=d.toISOString().slice(11,16);
   });
-  S.data.partidos=S.todos.filter(m=>{m.est=estadoPartido(m,now);return m.est!=='fin'});
+  S.data.partidos=S.todos.filter(m=>{m.est=estadoPartido(m,now);return m.est!=='fin'&&!m.rec});
 }
 
 /* ===================== carga ===================== */
@@ -166,7 +166,7 @@ async function init(){
     S.data=d;S.res=r;
   }catch(e){$('main').innerHTML='<div class="wrap"><div class="empty"><b>Aún no hay datos</b>La primera actualización automática todavía no se ha ejecutado.</div></div>';return}
   Object.keys(S.data.meta.ligas).forEach(k=>S.ligas.add(k));
-  S.todos=S.data.partidos.concat((S.data.recientes||[]).filter(r=>!S.data.partidos.some(p=>key(p)===key(r))));aplicarEstado();
+  S.todos=S.data.partidos.concat((S.data.recientes||[]).filter(r=>!S.data.partidos.some(p=>key(p)===key(r))).map(r=>({...r,rec:true})));aplicarEstado();
   setInterval(()=>{const antes=S.data.partidos.map(m=>key(m)+m.est).join();aplicarEstado();
     if(antes!==S.data.partidos.map(m=>key(m)+m.est).join()){if(S.sel&&!S.data.partidos.some(m=>key(m)===S.sel))S.sel=null;keepScroll(render);renderDetail()}validar(true)},60000);
   setInterval(refrescarResultados,180000);
@@ -979,7 +979,7 @@ async function refrescarResultados(){
     S.res=r;S.lastFetch=Date.now();
     if(d.meta.generado!==S.data.meta.generado){          // llegaron partidos / cuotas nuevos
       S.data=d;
-      S.todos=d.partidos.concat((d.recientes||[]).filter(q=>!d.partidos.some(p=>key(p)===key(q))));
+      S.todos=d.partidos.concat((d.recientes||[]).filter(q=>!d.partidos.some(p=>key(p)===key(q))).map(q=>({...q,rec:true})));
       aplicarEstado();
       if(S.sel&&!S.data.partidos.some(m=>key(m)===S.sel))S.sel=null;
       $('updt').textContent='Actualizado '+ago(d.meta.generado);
