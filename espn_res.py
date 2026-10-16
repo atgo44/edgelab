@@ -87,3 +87,35 @@ def recientes(div: str, conocidos: set, dias: int = 4) -> list:
                     "ht": None if r.get("HTHG") is None else int(r["HTHG"]) + int(r["HTAG"]),
                     "c": suma("HC", "AC"), "t": tarj, "st": suma("HST", "AST"), "s": suma("HS", "AS")})
     return out
+
+
+def proximos(div: str, conocidos: set, dias: int = 14) -> pd.DataFrame:
+    """Partidos programados en los próximos días (ESPN), con los nombres de football-data y hora de Perú."""
+    slug = SLUGS.get(div)
+    if not slug:
+        return pd.DataFrame()
+    y = pd.Timestamp.today().year
+    ev = []
+    for año in {y, y - 1}:
+        try:
+            ev += peru._season(año, max_age_h=0.05, slug=slug)
+        except Exception:
+            pass
+    hoy = pd.Timestamp.today().normalize()
+    out, cache, vistos = [], {}, set()
+    for e in ev:
+        try:
+            row = peru._row(e)
+        except Exception:
+            continue
+        if not row.get("programado"):
+            continue
+        d = row["Date"]
+        if d < hoy - pd.Timedelta(days=1) or d > hoy + pd.Timedelta(days=dias):
+            continue
+        h, a = _map(row["HomeTeam"], conocidos, cache), _map(row["AwayTeam"], conocidos, cache)
+        if not h or not a or h == a or (h, a, d) in vistos:
+            continue
+        vistos.add((h, a, d))
+        out.append({"Date": d, "Time": row["Time"], "HomeTeam": h, "AwayTeam": a, "zona": "lima"})
+    return pd.DataFrame(out)

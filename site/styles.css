@@ -444,3 +444,5 @@ tr.b-pendiente select,tr.b-anulada select{color:var(--mut)}
 .gr{grid-template-columns:minmax(0,1.4fr) minmax(40px,1fr) 46px}
 .card .gr:has(.gb + b + .gb){grid-template-columns:minmax(0,1.4fr) minmax(40px,1fr) 46px minmax(40px,1fr) 46px}
 .bt-row{grid-template-columns:130px 1fr 90px}
+
+.filters .fl .lnk+.mut{margin:0 2px}

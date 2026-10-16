@@ -232,6 +232,7 @@ function kpisHtml(all,rows){
     <div class="kpi" title="${best?esc(best.m.home)+' – '+esc(best.m.away)+': '+esc(best.val.t):''}"><div class="l">Mejor valor</div><div class="v num">${best?'+'+pc(best.val.e,1):'—'}</div></div>`;
 }
 function listHtml(rows){
+  if(!S.ligas.size)return `<div class="empty"><b>No hay ligas seleccionadas</b>Marca una o varias ligas en el filtro de la izquierda, o pulsa «todas».</div>`;
   if(!rows.length)return `<div class="empty"><b>Sin resultados</b>Prueba con otro periodo, activa más ligas o quita el filtro “Solo con valor”.</div>`;
   let h='',last='';
   rows.forEach(o=>{if(o.m.pf!==last){last=o.m.pf;h+=`<div class="day">${fmtDay(last)}</div>`}h+=rowHtml(o)});
@@ -248,7 +249,7 @@ function filtersHtml(){
   return `<div class="fl">Periodo</div>
     <div class="fseg">${[['all','Todo'],['hoy','Hoy'],['manana','Mañana'],['semana','7 días']].map(([id,l])=>
       `<button class="${S.range===id?'on':''}" data-range="${id}">${l}</button>`).join('')}</div>
-    <div class="fl">Ligas<button class="lnk" data-liga-all>todas</button></div>
+    <div class="fl">Ligas<span><button class="lnk" data-liga-all>todas</button><span class="mut"> · </span><button class="lnk" data-liga-none>ninguna</button></span></div>
     <div class="lgs">${Object.keys(S.data.meta.ligas).map(l=>
       `<button class="lrow ${S.ligas.has(l)?'on':''}" data-liga="${l}" aria-pressed="${S.ligas.has(l)}"><span class="cbx">${S.ligas.has(l)?ic('check'):''}</span><span class="ln">${esc(ligaName(l))}</span><em>${counts[l]||0}</em></button>`).join('')}</div>
     <div class="fl" title="Qué tanto pesa la cuota del mercado frente al modelo propio">Peso del mercado<b class="wv num">${w}%</b></div>
@@ -1017,6 +1018,7 @@ document.addEventListener('click',e=>{
   if((b=t.closest('[data-view]'))){setView(b.dataset.view);return}
   if((b=t.closest('[data-k]'))){selectMatch(b.dataset.k);return}
   if((b=t.closest('[data-range]'))){S.range=b.dataset.range;keepScroll(render);return}
+  if(t.closest('[data-liga-none]')){S.ligas.clear();keepScroll(render);return}
   if(t.closest('[data-liga-all]')){Object.keys(S.data.meta.ligas).forEach(l=>S.ligas.add(l));keepScroll(render);return}
   if((b=t.closest('[data-liga]'))){const l=b.dataset.liga;S.ligas.has(l)?S.ligas.delete(l):S.ligas.add(l);keepScroll(render);return}
   if((b=t.closest('[data-odd]'))){toggleLeg(b.dataset.odd,b.dataset.s);return}

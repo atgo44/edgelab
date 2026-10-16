@@ -204,6 +204,17 @@ def partidos(div: str, dias: int):
     hist = preparar(hist)
     liga_prom = _prom_liga(hist)
     hoy = pd.Timestamp.today().normalize()
+    if div not in ESPN_COMPS:  # football-data publica pocos días: se completa con el calendario de ESPN (sin cuotas)
+        fx = fx.copy()
+        fx["zona"] = "uk"
+        try:
+            ex = espn_res.proximos(div, set(hist.HomeTeam) | set(hist.AwayTeam), dias)
+            if len(ex):
+                ya = set(zip(fx.HomeTeam, fx.AwayTeam))
+                ex = ex[[(h, a) not in ya for h, a in zip(ex.HomeTeam, ex.AwayTeam)]]
+                fx = pd.concat([fx, ex], ignore_index=True)
+        except Exception as exc:
+            print("  calendario ESPN:", exc)
     fx = fx[(fx.Date >= hoy) & (fx.Date <= hoy + pd.Timedelta(days=dias))]
     if fx.empty:
         return [], hist
@@ -264,7 +275,7 @@ def partidos(div: str, dias: int):
                                   po=round(float(pm["BTTS_SI"]), 4), cuo=b["si"], cuu=b["no"]))
         out.append({"liga": div, "fecha": r.Date.strftime("%Y-%m-%d"), "casa": casa, "extra": extra,
                     "hora": None if pd.isna(r.get("Time")) else str(r.get("Time")),
-                    "zona": "lima" if div in ESPN_COMPS else "uk",
+                    "zona": "lima" if (div in ESPN_COMPS or r.get("zona") == "lima") else "uk",
                     "home": r.HomeTeam, "away": r.AwayTeam, "sel": sel,
                     "btts": round(float(pm["BTTS_SI"]), 4), "vars": vars_,
                     "ctx": {"home": contexto(hist, r.HomeTeam, "L", liga_prom), "away": contexto(hist, r.AwayTeam, "V", liga_prom),
