@@ -31,7 +31,7 @@ const ic=(n,c='')=>`<svg class="ic ${c}" viewBox="0 0 24 24" aria-hidden="true">
 
 const S={data:null,res:[],ligas:new Set(),w:LS.get('el.w',75)/100,only:LS.get('el.only',false),q:'',range:'all',
   view:LS.get('el.view','partidos'),sel:null,panel:'detalle',dtab:'resumen',slip:new Map(),
-  bets:LS.get('el.bets',[]),bank:LS.get('el.bank',1000),bank0:LS.get('el.bank0',null),tomb:LS.get('el.tomb',{}),sync:{tok:LS.get('el.gtok',''),gist:LS.get('el.gist',''),last:LS.get('el.glast',null),msg:'',busy:false},plan:{perfil:LS.get('el.perfil','mod'),n:LS.get('el.nplan',5),saldo:null},theme:LS.get('el.theme','auto')};
+  bets:LS.get('el.bets',[]),bank:LS.get('el.bank',1000),bank0:LS.get('el.bank0',null),sim:LS.get('el.sim',{tipo:'todas',emin:-100,emax:100,pmin:0,cat:'',liga:'',casa:'',cmin:1,cmax:50,stake:'actual',fijo:10,pct:2}),riesgo:LS.get('el.riesgo',{dia:5,sem:10,exp:15}),slipMeta:{casa:LS.get('el.casa','Betano'),tag:LS.get('el.tag','Modelo'),nota:''},tomb:LS.get('el.tomb',{}),sync:{tok:LS.get('el.gtok',''),gist:LS.get('el.gist',''),last:LS.get('el.glast',null),msg:'',busy:false},plan:{perfil:LS.get('el.perfil','mod'),n:LS.get('el.nplan',5),saldo:null},theme:LS.get('el.theme','auto')};
 
 /* ===================== cálculo ===================== */
 const key=m=>`${m.liga}|${m.home}|${m.away}|${m.fecha}`;
@@ -378,6 +378,159 @@ function panelSync(){
   return h;
 }
 
+/* ===================== análisis avanzado de rentabilidad ===================== */
+function rng(seed){let a=seed>>>0;return()=>{a=(a+0x6D2B79F5)|0;let t=Math.imul(a^(a>>>15),1|a);t=(t+Math.imul(t^(t>>>7),61|t))^t;return((t^(t>>>14))>>>0)/4294967296}}
+const ROI=arr=>{const st=arr.reduce((a,b)=>a+b.monto,0);return st?arr.reduce((a,b)=>a+profitOf(b),0)/st:0};
+function roiCI(done){                      // intervalo de confianza 95% del ROI (bootstrap)
+  const n=done.length;if(n<5)return null;
+  const st=done.map(b=>b.monto),pf=done.map(profitOf),r=rng(n*7919+13),v=[];
+  for(let i=0;i<1500;i++){let s0=0,p0=0;for(let j=0;j<n;j++){const k=Math.floor(r()*n);s0+=st[k];p0+=pf[k]}v.push(s0?p0/s0:0)}
+  v.sort((a,b)=>a-b);return {lo:v[37],hi:v[1462]};
+}
+function azar(done){                       // acierto real frente al que implican las cuotas
+  const n=done.length;if(!n)return null;
+  const pi=done.map(b=>1/b.cuota),ex=pi.reduce((a,x)=>a+x,0),va=pi.reduce((a,x)=>a+x*(1-x),0),w=done.filter(b=>b.estado==='ganada').length;
+  return {n,exp:ex/n,real:w/n,z:va>0?(w-ex)/Math.sqrt(va):0};
+}
+function cierreDe(l){                      // última cuota máxima antes del inicio (cuota de cierre)
+  const id=l.id||l.sel;if(!['1','X','2','O2.5','U2.5'].includes(id))return null;
+  const m=S.todos.find(x=>x.home===l.home&&x.away===l.away&&x.fecha===l.fecha&&(!l.liga||x.liga===l.liga));
+  if(!m||!m.sel||!m.sel[id]||!m.sel[id].max)return null;
+  return koMs(m)<=Date.now()?m.sel[id].max:null;
+}
+function clvDe(b){
+  const v=b.legs.map(l=>{const c=cierreDe(l);return c&&l.o?l.o/c:null});
+  return v.length&&v.every(x=>x!=null)?v.reduce((a,x)=>a*x,1)-1:null;
+}
+function clvStats(done){const v=done.map(clvDe).filter(x=>x!=null);return {n:v.length,avg:v.length?v.reduce((a,x)=>a+x,0)/v.length:null,pos:v.filter(x=>x>0).length}}
+const ptsPct=x=>(x>=0?'+':'')+(x*100).toFixed(1)+'%';
+function ventajaHtml(done){
+  const n=done.length;
+  if(!n)return `<div class="sec"><h3>¿Es real tu ventaja?</h3><div class="card"><div class="mut">Aún no hay apuestas cerradas. Cuando haya resultados verás aquí si tu rentabilidad es real o suerte (margen de error, CLV y comparación con el azar).</div></div></div>`;
+  const ci=roiCI(done),az=azar(done),cl=clvStats(done),roi=ROI(done);
+  let ver,cls;
+  if(n<30){ver=`Muestra insuficiente (${n} de 30 apuestas): cualquier resultado puede ser suerte.`;cls='info'}
+  else if(ci&&ci.lo>0){ver='Ventaja probable: el ROI es positivo incluso en el escenario pesimista.';cls='good'}
+  else if(ci&&ci.hi<0){ver='Pérdida probable: incluso en el mejor escenario el ROI es negativo. Revisa tu método.';cls='bad'}
+  else{ver='No concluyente: el margen de error incluye ganar y perder. Hace falta más muestra.';cls='warn'}
+  const hw=ci?(ci.hi-ci.lo)/2:null,need=ci&&hw>.05?Math.ceil(n*Math.pow(hw/.05,2)):null;
+  const t=(l,v,s2,c='')=>`<div class="vt"><div class="l">${l}</div><div class="v num ${c}">${v}</div><div class="s">${s2}</div></div>`;
+  return `<div class="sec"><h3>¿Es real tu ventaja?</h3><div class="card">
+    <div class="vgrid">
+      ${t('ROI',ptsPct(roi),ci?`margen de error 95%: ${ptsPct(ci.lo)} a ${ptsPct(ci.hi)}`:'pocas apuestas',roi>=0?'good':'bad')}
+      ${t('Acierto real',pc(az.real,0),`las cuotas implicaban ${pc(az.exp,0)} · z = ${az.z.toFixed(1)}`,az.z>1.64?'good':az.z<-1.64?'bad':'')}
+      ${t('CLV medio',cl.avg==null?'—':ptsPct(cl.avg),cl.n?`${cl.pos} de ${cl.n} apuestas mejoraron la cuota de cierre`:'sin cuota de cierre disponible aún',cl.avg>0?'good':cl.avg<0?'bad':'')}
+      ${t('Para concluir',need?`~${need}`:'listo','apuestas necesarias para un margen de ±5%')}
+    </div>
+    <div class="verdict ${cls==='info'?'':cls}" style="margin:12px 0 0">${ic('info')}<span>${ver}</span></div>
+    <div class="note">CLV: si tomas cuotas mejores que las de cierre del mercado, a largo plazo el ROI suele seguir; es más fiable que unos pocos resultados. «z» compara tu acierto con el que daría apostar sin ventaja: por encima de 1.6 o por debajo de −1.6 ya es relevante.</div></div></div>`;
+}
+
+/* ---------- control de riesgo ---------- */
+function estadoRiesgo(extra=0){
+  const b0=S.bank0!=null?S.bank0:S.bank,cer=S.bets.filter(closed),saldo=Math.max(1,b0+cer.reduce((a,b)=>a+profitOf(b),0));
+  const dayOf=b=>new Date(Date.parse(b.ts)-5*3600e3).toISOString().slice(0,10),hoy=peruNow(),d7=peruNow(-6);
+  const pDia=cer.filter(b=>dayOf(b)===hoy).reduce((a,b)=>a+profitOf(b),0),pSem=cer.filter(b=>dayOf(b)>=d7).reduce((a,b)=>a+profitOf(b),0);
+  const exp=S.bets.filter(b=>b.estado==='pendiente').reduce((a,b)=>a+b.monto,0)+extra,R=S.riesgo,al=[];
+  if(-pDia>saldo*R.dia/100)al.push(`Ya perdiste ${(-pDia).toFixed(0)} hoy (tu límite diario es ${R.dia}% del saldo).`);
+  if(-pSem>saldo*R.sem/100)al.push(`Pierdes ${(-pSem).toFixed(0)} en 7 días (límite semanal ${R.sem}%).`);
+  if(exp>saldo*R.exp/100)al.push(`Tendrías ${exp.toFixed(0)} en juego, ${pc(exp/saldo,0)} del saldo (límite ${R.exp}%).`);
+  return {saldo,pDia,pSem,exp,al};
+}
+function riesgoBanner(){
+  const r=estadoRiesgo();
+  return r.al.length?`<div class="callout" style="margin-bottom:12px">${ic('alert')}<div><b>Control de riesgo:</b> ${r.al.map(esc).join(' ')} Considera parar o reducir montos.</div></div>`:'';
+}
+function riesgoHtml(){
+  const r=estadoRiesgo(),R=S.riesgo;
+  const barra=(l,v,lim)=>{const w=Math.min(100,Math.max(0,v/(r.saldo*lim/100))*100);
+    return `<div class="bt-row"><span>${l}</span><div class="bar2"><i style="width:${w}%;background:${w>=100?'var(--red)':w>=70?'var(--warn)':'var(--good)'}"></i></div><b class="num">${v.toFixed(0)} / ${(r.saldo*lim/100).toFixed(0)}</b></div>`};
+  return `<div class="sec"><h3>Control de riesgo</h3><div class="card">
+    ${barra('Pérdida de hoy',Math.max(0,-r.pDia),R.dia)}${barra('Pérdida 7 días',Math.max(0,-r.pSem),R.sem)}${barra('En juego',r.exp,R.exp)}
+    <div class="row" style="margin-top:10px;gap:14px">
+      <label class="mut" style="font-size:12px">Pérdida diaria máx. (% saldo)<br><input class="inp num" type="number" min="0" step="1" data-riesgo="dia" value="${R.dia}"></label>
+      <label class="mut" style="font-size:12px">Pérdida semanal máx. (%)<br><input class="inp num" type="number" min="0" step="1" data-riesgo="sem" value="${R.sem}"></label>
+      <label class="mut" style="font-size:12px">En juego máx. (%)<br><input class="inp num" type="number" min="0" step="1" data-riesgo="exp" value="${R.exp}"></label></div>
+    <div class="note">Si registras una apuesta que supera un límite, te lo avisará y tendrás que confirmar. Es un freno, no una prohibición.</div></div></div>`;
+}
+
+/* ---------- calibración por tramos ---------- */
+function calibHtml(done){
+  const B=[[0,.35,'menos de 35%'],[.35,.5,'35–50%'],[.5,.65,'50–65%'],[.65,.8,'65–80%'],[.8,1.01,'80% o más']];
+  const rows=B.map(([a,b,l])=>{const x=done.filter(d=>d.p>=a&&d.p<b);if(!x.length)return '';
+    const e=x.reduce((q,d)=>q+d.p,0)/x.length,r=x.filter(d=>d.estado==='ganada').length/x.length;
+    return `<div class="gr"><div class="gl">${l}<small>${x.length} apuestas${x.length<8?' · muestra pequeña':''}</small></div>
+      <div class="gb" title="esperado ${pc(e,0)}"><i style="width:${e*100}%;background:var(--draw)"></i></div><b class="num">${pc(e,0)}</b>
+      <div class="gb" title="real ${pc(r,0)}"><i style="width:${r*100}%;background:${r>=e?'var(--good)':'var(--red)'}"></i></div><b class="num ${r>=e?'good':'bad'}">${pc(r,0)}</b></div>`}).join('');
+  return `<div class="sec"><h3>Calibración por tramos de probabilidad</h3><div class="card"><div class="mut" style="font-size:12px;display:grid;grid-template-columns:minmax(0,1.4fr) minmax(40px,1fr) 46px minmax(40px,1fr) 46px;gap:10px"><span></span><span>Esperado</span><span></span><span>Real</span><span></span></div>${rows||'<div class="mut">Sin datos.</div>'}
+    <div class="note">Si en un tramo lo real queda por debajo de lo esperado, el modelo exagera en esa zona: pide más edge o sube el peso del mercado.</div></div></div>`;
+}
+
+/* ---------- simulador "¿y si…?" ---------- */
+function simHtml(done){
+  const f=S.sim,b0=S.bank0!=null?S.bank0:S.bank;
+  const cats=[...new Set(done.flatMap(b=>b.legs.map(catOfLeg)))].sort(),ligas=[...new Set(done.map(b=>b.legs[0]&&b.legs[0].liga).filter(Boolean))],casas=[...new Set(done.map(b=>b.casa).filter(Boolean))];
+  let sel=done.filter(b=>{
+    if(f.tipo==='simples'&&b.legs.length!==1)return false;
+    if(f.tipo==='comb'&&b.legs.length===1)return false;
+    const e=b.p*b.cuota-1;if(e<f.emin/100||e>f.emax/100)return false;
+    if(b.p<f.pmin/100)return false;
+    if(f.cat&&!b.legs.some(l=>catOfLeg(l)===f.cat))return false;
+    if(f.liga&&!b.legs.some(l=>l.liga===f.liga))return false;
+    if(f.casa&&(b.casa||'')!==f.casa)return false;
+    if(b.cuota<f.cmin||b.cuota>f.cmax)return false;
+    return true;
+  });
+  const stake=b=>f.stake==='fijo'?f.fijo:f.stake==='pct'?b0*f.pct/100:f.stake==='kelly'?b0*kelly(b.p,b.cuota,.03):b.monto;
+  sel=sel.map(b=>({...b,monto:stake(b)})).filter(b=>b.monto>0);
+  const n=sel.length,st=sel.reduce((a,b)=>a+b.monto,0),pf=sel.reduce((a,b)=>a+profitOf(b),0),w=sel.filter(b=>b.estado==='ganada').length;
+  const ci=roiCI(sel),roi0=ROI(done),pf0=done.reduce((a,b)=>a+profitOf(b),0);
+  const opt=(arr,cur,all)=>`<option value="">${all}</option>`+arr.map(v=>`<option value="${esc(v)}" ${v===cur?'selected':''}>${esc(v)}</option>`).join('');
+  const num=(k,l,st2='')=>`<label class="mut" style="font-size:12px">${l}<br><input class="inp num" type="number" data-sim="${k}" value="${f[k]}" ${st2}></label>`;
+  const selc=(k,l,o)=>`<label class="mut" style="font-size:12px">${l}<br><select class="inp" data-sim="${k}" style="width:auto;text-align:left">${o}</select></label>`;
+  return `<div class="sec"><h3>Simulador: ¿qué habría pasado si…?</h3><div class="card">
+    <div class="row" style="gap:12px;align-items:flex-end">
+      ${selc('tipo','Tipo',['todas:Todas','simples:Solo simples','comb:Solo combinadas'].map(x=>{const[v,l]=x.split(':');return `<option value="${v}" ${f.tipo===v?'selected':''}>${l}</option>`}).join(''))}
+      ${selc('cat','Mercado',opt(cats,f.cat,'Todos'))}
+      ${ligas.length?selc('liga','Liga',opt(ligas,f.liga,'Todas').replace(/<option value="([^"]+)"([^>]*)>([^<]+)</g,(m,v,a,t)=>v?`<option value="${v}"${a}>${esc(ligaName(v))}<`:m)):''}
+      ${casas.length?selc('casa','Casa',opt(casas,f.casa,'Todas')):''}
+      ${num('emin','Edge mín. %','style="width:80px"')}${num('emax','Edge máx. %','style="width:80px"')}
+      ${num('pmin','Prob. mín. %','style="width:80px"')}${num('cmin','Cuota mín.','step="0.1" style="width:80px"')}${num('cmax','Cuota máx.','step="0.1" style="width:80px"')}
+      ${selc('stake','Monto',['actual:El que usé','fijo:Fijo','pct:% de la banca inicial','kelly:Kelly 25% (tope 3%)'].map(x=>{const[v,l]=x.split(':');return `<option value="${v}" ${f.stake===v?'selected':''}>${l}</option>`}).join(''))}
+      ${f.stake==='fijo'?num('fijo','Monto fijo','style="width:80px"'):''}${f.stake==='pct'?num('pct','% banca','step="0.5" style="width:80px"'):''}
+    </div>
+    <div class="vgrid" style="margin-top:12px">
+      <div class="vt"><div class="l">Apuestas</div><div class="v num">${n}<small class="mut"> de ${done.length}</small></div><div class="s">que cumplen la regla</div></div>
+      <div class="vt"><div class="l">Ganancia</div><div class="v num ${pf>=0?'good':'bad'}">${money(pf)}</div><div class="s">tu real: ${money(pf0)}</div></div>
+      <div class="vt"><div class="l">ROI simulado</div><div class="v num ${pf>=0?'good':'bad'}">${st?ptsPct(pf/st):'—'}</div><div class="s">tu real: ${ptsPct(roi0)}${ci&&n>=5?` · margen ${ptsPct(ci.lo)} a ${ptsPct(ci.hi)}`:''}</div></div>
+      <div class="vt"><div class="l">Acierto</div><div class="v num">${n?pc(w/n,0):'—'}</div><div class="s">${w} de ${n}</div></div>
+    </div>
+    <div class="note">${n<30?'Con menos de 30 apuestas esto es muy poco fiable: elegir reglas mirando resultados pasados «se ajusta» al azar. Úsalo para formular una hipótesis y confírmala con apuestas nuevas.':'Cuidado: una regla que funciona en el pasado no garantiza el futuro. Confírmala con apuestas nuevas antes de cambiar tu método.'}</div>
+    <div class="row" style="margin-top:8px"><button class="btn ghost sm" id="sim-reset">Restablecer</button></div></div></div>`;
+}
+
+/* ---------- resumen semanal y exportación ---------- */
+function semanaHtml(done){
+  const dayOf=b=>new Date(Date.parse(b.ts)-5*3600e3).toISOString().slice(0,10);
+  const a=peruNow(-6),b=peruNow(-13),pasada=S.bets.filter(x=>closed(x)&&dayOf(x)>=a),previa=S.bets.filter(x=>closed(x)&&dayOf(x)>=b&&dayOf(x)<a);
+  const blk=(t,arr)=>{const st=arr.reduce((q,x)=>q+x.monto,0),pf=arr.reduce((q,x)=>q+profitOf(x),0),w=arr.filter(x=>x.estado==='ganada').length;
+    return `<div class="vt"><div class="l">${t}</div><div class="v num ${pf>=0?'good':'bad'}">${arr.length?money(pf):'—'}</div><div class="s">${arr.length} apuestas · ${arr.length?`${w} ganadas · ROI ${st?ptsPct(pf/st):'—'}`:'sin cerrar'}</div></div>`};
+  return `<div class="sec"><h3>Resumen semanal</h3><div class="card"><div class="vgrid">${blk('Últimos 7 días',pasada)}${blk('7 días anteriores',previa)}</div>
+    <div class="row" style="margin-top:10px"><button class="btn ghost sm" id="exp-csv">Exportar apuestas (CSV)</button></div></div></div>`;
+}
+function exportarCSV(){
+  const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
+  const cols=['fecha','casa','motivo','selecciones','cuota','prob_modelo','monto','estado','ganancia','clv'];
+  const filas=S.bets.map(b=>[b.ts.slice(0,10),b.casa||'',b.tag||'',b.legs.map(l=>`${l.home}-${l.away}: ${l.apuesta}`).join(' | '),b.cuota.toFixed(2),b.p.toFixed(3),b.monto,b.estado,
+    b.estado==='pendiente'?'':profitOf(b).toFixed(2),clvDe(b)==null?'':(clvDe(b)*100).toFixed(1)+'%'].map(q).join(','));
+  const csv=[cols.join(','),...filas].join('\n');
+  try{
+    if(!window.__EL__){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['﻿'+csv],{type:'text/csv'}));a.download='edgelab_apuestas.csv';document.body.appendChild(a);a.click();a.remove();toast('Archivo descargado');return}
+  }catch(e){}
+  if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(csv).then(()=>toast('CSV copiado al portapapeles'),()=>toast('No se pudo copiar'));
+  else toast('Descarga no disponible en esta versión');
+}
+
 /* ---------- rentabilidad ---------- */
 const closed=b=>b.estado==='ganada'||b.estado==='perdida';
 const profitOf=b=>b.estado==='ganada'?b.monto*(b.cuota-1):b.estado==='perdida'?-b.monto:0;
@@ -398,6 +551,8 @@ function groupTables(done){
     ['Por cuota',grp(done,b=>b.cuota<1.5?'Menos de 1.50':b.cuota<2?'1.50 – 1.99':b.cuota<3?'2.00 – 2.99':'3.00 o más')],
     ['Por confianza del modelo',grp(done,b=>b.p>=.7?'Alta (≥70%)':b.p>=.55?'Media (55–70%)':'Baja (<55%)')],
     ['Por origen de la cuota',grp(done,srcOf)],
+    ['Por casa de apuestas',grp(done,b=>b.casa||'Sin dato')],
+    ['Por motivo',grp(done,b=>b.tag||'Sin dato')],
   ];
 }
 function insights(done,bank){
@@ -454,6 +609,7 @@ function viewHist(){
   </div>
   <div class="card row" style="gap:14px;margin-bottom:8px"><label class="mut" style="font-size:12px">Banca inicial<br><input class="inp num" type="number" min="0" data-f="bank0" value="${b0}" style="width:110px"></label>
     <span class="mut" style="font-size:12px;max-width:60ch">Saldo estimado = banca inicial + beneficio de apuestas cerradas. Disponible para apostar: <b class="num" style="color:var(--tx)">${(saldo-enJuego).toFixed(2)}</b> (descontando lo que está en juego).<br>Validación automática activa: se comprueba cada minuto${S.res&&S.res.length?` con ${S.res.length} resultados recientes`:''}${window.__EL__?'':' y los datos se recargan cada 3 minutos'}. Datos generados ${ago(S.data.meta.generado)}.</span></div>`;
+  h+=riesgoBanner()+ventajaHtml(done)+riesgoHtml();
   if(n){
     const ord=done.slice().sort((a,b)=>a.ts.localeCompare(b.ts));
     let c=0;const vals=[0];ord.forEach(b=>{c+=profitOf(b);vals.push(c)});
@@ -464,6 +620,7 @@ function viewHist(){
         return `<div class="gr"><div class="gl" title="${esc(g.k)}">${esc(g.k)}<small>${g.n} ap. · acierto ${pc(g.hit,0)} (esperado ${pc(g.expHit,0)})${g.n<5?' · muestra pequeña':''}</small></div>
           <div class="gb"><i style="width:${w}%;background:${g.roi>=0?'var(--good)':'var(--bad)'}"></i></div><b class="num ${g.roi>=0?'good':'bad'}">${g.roi>=0?'+':''}${pc(g.roi,0)}</b></div>`}).join('')}</div>`).join('')}</div></div>`;
   }
+  if(n)h+=calibHtml(done)+simHtml(done)+semanaHtml(done);
   h+=`<div class="sec"><h3>Apuestas guardadas</h3></div>`+panelSync();
   if(!S.bets.length)return h+`<div class="empty"><b>Aún no hay apuestas</b>Añade selecciones a la boleta y guárdalas, o registra el plan de apuestas.</div>`;
   h+=`<div class="card" style="padding:4px 4px"><div class="scroll"><table class="tbl"><thead><tr><th>Fecha</th><th>Selecciones</th><th>Cuota</th><th>Prob.</th><th>Monto</th><th>Ganancia</th><th>Estado</th><th></th></tr></thead><tbody>
@@ -503,7 +660,7 @@ function viewPlan(){
   const saldo=S.plan.saldo!=null?S.plan.saldo:Math.round(disp);
   const pl=planPicks(saldo),P=pl.P;
   const ya=k=>S.bets.some(b=>b.estado==='pendiente'&&b.legs.length===1&&b.legs[0].home===k.m.home&&b.legs[0].away===k.m.away&&(b.legs[0].id||b.legs[0].sel)===k.id);
-  let h=`<div class="ph"><h1>Plan de apuestas</h1><p>Con tu saldo y tu perfil de riesgo, reparte el monto entre las opciones con más valor de los partidos cargados. Es una propuesta de gestión, no una promesa de ganancia.</p></div>
+  let h=`<div class="ph"><h1>Plan de apuestas</h1><p>Con tu saldo y tu perfil de riesgo, reparte el monto entre las opciones con más valor de los partidos cargados. Es una propuesta de gestión, no una promesa de ganancia.</p></div>${riesgoBanner()}
   <div class="card row" style="gap:18px;margin-bottom:10px;align-items:flex-end">
     <label class="mut" style="font-size:12px">Saldo disponible<br><input class="inp num" type="number" min="0" data-f="saldo" value="${saldo}" style="width:120px"></label>
     <div><div class="mut" style="font-size:12px;margin-bottom:4px">Perfil de riesgo</div><div class="seg">${Object.entries(PERFILES).map(([id,p])=>`<button class="${S.plan.perfil===id?'on':''}" data-perfil="${id}">${p.n}</button>`).join('')}</div></div>
@@ -532,7 +689,7 @@ function viewPlan(){
 function registrarPlan(items){
   const pl=items;
   pl.forEach(x=>{
-    S.bets.unshift({id:Date.now().toString(36)+Math.random().toString(36).slice(2,5),ts:new Date().toISOString(),u:Date.now(),monto:x.monto,cuota:x.o,p:x.p,estado:'pendiente',
+    S.bets.unshift({id:Date.now().toString(36)+Math.random().toString(36).slice(2,5),ts:new Date().toISOString(),u:Date.now(),monto:x.monto,cuota:x.o,p:x.p,estado:'pendiente',casa:S.slipMeta.casa,tag:'Plan',
       legs:[{home:x.m.home,away:x.m.away,fecha:x.m.fecha,liga:x.m.liga,id:x.id,sel:x.id,cat:x.cat,apuesta:x.t,o:x.o,src:'casa',p:x.p}]});
   });
   persistBets();validar(false);buildNav();
@@ -756,6 +913,7 @@ function slipHtml(){
         :`<input class="inp num" type="number" step="0.01" min="1" inputmode="decimal" data-mo="${esc(l.lk)}" value="${l.mo||''}" placeholder="≥${(1/l.p).toFixed(2)}" aria-label="Tu cuota para ${esc(l.apuesta)}"><span class="mut" style="font-size:12px">tu cuota</span>`}</div></div>
       <button class="iconbtn" data-rm="${esc(l.lk)}" aria-label="Quitar" style="width:30px;height:30px">${ic('x')}</button></div>`).join('')}</div>
     <div id="slipsum" style="margin-top:12px">${slipSummary()}</div>
+    <div class="row" style="margin-top:6px;gap:8px"><label class="mut" style="font-size:12px">Casa<br><select class="inp" data-meta="casa" style="width:auto;text-align:left">${['Betano','Apuesta Total','Inkabet','Otra'].map(c=>`<option ${c===S.slipMeta.casa?'selected':''}>${c}</option>`).join('')}</select></label><label class="mut" style="font-size:12px">Motivo<br><select class="inp" data-meta="tag" style="width:auto;text-align:left">${['Modelo','Valor','Intuición','Racha','Tipster','Otro'].map(c=>`<option ${c===S.slipMeta.tag?'selected':''}>${c}</option>`).join('')}</select></label></div>
     <div class="row" style="margin-top:6px"><label class="mut" style="font-size:12px">Monto<br><input class="inp num" type="number" id="amt" min="0" value="${Math.max(1,Math.round(st))}" style="width:96px"></label>
       <label class="mut" style="font-size:12px">Mi banca<br><input class="inp num" type="number" id="bank" min="0" value="${S.bank}" style="width:96px"></label></div>
     <div class="row" style="margin-top:14px"><button class="btn" id="save">Guardar en mi historial</button><button class="btn ghost" id="clear">Vaciar</button></div></div>`;
@@ -778,7 +936,10 @@ function refreshSlip(){$('slipcnt').textContent=S.slip.size;$('slipcnt').hidden=
 function keepScroll(fn){const y=$('main').scrollTop;fn();$('main').scrollTop=y}
 function saveBet(){
   const {L,o,p}=totals();if(!L.length)return;
-  S.bets.unshift({id:Date.now().toString(36),ts:new Date().toISOString(),u:Date.now(),monto:+$('amt').value||0,cuota:o,p,estado:'pendiente',
+  const rk=estadoRiesgo(+$('amt').value||0);
+  if(rk.al.length&&!S._confirmaRiesgo){toast('⚠ '+rk.al[0]+' Pulsa de nuevo para guardar igualmente.');S._confirmaRiesgo=true;setTimeout(()=>{S._confirmaRiesgo=false},9000);return}
+  S._confirmaRiesgo=false;
+  S.bets.unshift({id:Date.now().toString(36),ts:new Date().toISOString(),u:Date.now(),monto:+$('amt').value||0,cuota:o,p,estado:'pendiente',casa:S.slipMeta.casa,tag:S.slipMeta.tag,nota:S.slipMeta.nota,
     legs:L.map(l=>({home:l.m.home,away:l.m.away,fecha:l.m.fecha,liga:l.m.liga,id:l.id,sel:l.id,cat:l.cat,apuesta:l.apuesta,o:lo(l),src:lsrc(l),p:l.p}))});
   persistBets();S.slip.clear();settleAuto();S.panel='detalle';buildNav();refreshSlip();toast('Guardado en tu historial');
 }
@@ -879,6 +1040,8 @@ document.addEventListener('click',e=>{
   if(t.closest('#sync-now')){sincronizar(true);return}
   if(t.closest('#sync-off')){S.sync.tok='';S.sync.gist='';S.sync.last=null;S.sync.msg='';LS.set('el.gtok','');LS.set('el.gist','');LS.set('el.glast',null);toast('Desconectado: tu historial sigue en este navegador');keepScroll(renderMain);return}
   if(t.closest('#exp-copy')){exportarHistorial();return}
+  if(t.closest('#exp-csv')){exportarCSV();return}
+  if(t.closest('#sim-reset')){S.sim={tipo:'todas',emin:-100,emax:100,pmin:0,cat:'',liga:'',casa:'',cmin:1,cmax:50,stake:'actual',fijo:10,pct:2};LS.set('el.sim',S.sim);keepScroll(renderMain);return}
   if(t.closest('#imp-go')){importarHistorial();return}
   if(t.closest('#save')){saveBet();return}
   if(t.closest('#clear')){S.slip.clear();refreshSlip();return}
@@ -907,6 +1070,9 @@ const input={t:0};
 document.addEventListener('change',e=>{
   const t=e.target;
   if(t.id==='bank'){renderDetail()}
+  else if(t.dataset&&t.dataset.sim){S.sim[t.dataset.sim]=t.type==='number'?(+t.value):t.value;LS.set('el.sim',S.sim);keepScroll(renderMain)}
+  else if(t.dataset&&t.dataset.riesgo){S.riesgo[t.dataset.riesgo]=Math.max(0,+t.value||0);LS.set('el.riesgo',S.riesgo);keepScroll(renderMain)}
+  else if(t.dataset&&t.dataset.meta){S.slipMeta[t.dataset.meta]=t.value;if(t.dataset.meta!=='nota')LS.set('el.'+t.dataset.meta,t.value)}
   else if(t.dataset&&t.dataset.f==='saldo'){S.plan.saldo=Math.max(0,+t.value||0);keepScroll(renderMain)}
   else if(t.dataset&&t.dataset.f==='bank0'){S.bank0=Math.max(0,+t.value||0);LS.set('el.bank0',S.bank0);keepScroll(renderMain)}
   else if(t.dataset&&t.dataset.bet){const b=S.bets.find(x=>x.id===t.dataset.bet);if(b){b.estado=t.value;b.u=Date.now();persistBets();render()}}
