@@ -31,26 +31,37 @@ const ic=(n,c='')=>`<svg class="ic ${c}" viewBox="0 0 24 24" aria-hidden="true">
 
 const S={data:null,res:[],ligas:new Set(),w:LS.get('el.w',75)/100,only:LS.get('el.only',false),q:'',range:'all',
   view:LS.get('el.view','partidos'),sel:null,panel:'detalle',dtab:'resumen',slip:new Map(),
-  bets:LS.get('el.bets',[]),bank:LS.get('el.bank',1000),bank0:LS.get('el.bank0',null),sim:LS.get('el.sim',{tipo:'todas',emin:-100,emax:100,pmin:0,cat:'',liga:'',casa:'',cmin:1,cmax:50,stake:'actual',fijo:10,pct:2}),riesgo:LS.get('el.riesgo',{dia:5,sem:10,exp:15}),slipMeta:{casa:LS.get('el.casa','Betano'),tag:LS.get('el.tag','Modelo'),nota:''},tomb:LS.get('el.tomb',{}),sync:{tok:LS.get('el.gtok',''),gist:LS.get('el.gist',''),last:LS.get('el.glast',null),msg:'',busy:false},plan:{perfil:LS.get('el.perfil','mod'),n:LS.get('el.nplan',5),saldo:null},theme:LS.get('el.theme','auto')};
+  bets:LS.get('el.bets',[]),bank:LS.get('el.bank',1000),bank0:LS.get('el.bank0',null),wAuto:LS.get('el.wauto',true),sim:LS.get('el.sim',{tipo:'todas',emin:-100,emax:100,pmin:0,cat:'',liga:'',casa:'',cmin:1,cmax:50,stake:'actual',fijo:10,pct:2}),riesgo:LS.get('el.riesgo',{dia:5,sem:10,exp:15}),slipMeta:{casa:LS.get('el.casa','Betano'),tag:LS.get('el.tag','Modelo'),nota:''},tomb:LS.get('el.tomb',{}),sync:{tok:LS.get('el.gtok',''),gist:LS.get('el.gist',''),last:LS.get('el.glast',null),msg:'',busy:false},plan:{perfil:LS.get('el.perfil','mod'),n:LS.get('el.nplan',5),saldo:null},theme:LS.get('el.theme','auto')};
 
 /* ===================== cálculo ===================== */
 const key=m=>`${m.liga}|${m.home}|${m.away}|${m.fecha}`;
+/* peso del mercado: el validado por el backtest de cada liga (si está activo) o el manual */
+const btOf=m=>(S.data&&S.data.meta.backtest&&S.data.meta.backtest[m.liga])||null;
+const wOf=m=>{const b=btOf(m);return (S.wAuto&&b&&b.w_opt!=null)?b.w_opt:S.w};
+/* ¿el modelo de conteo (1T, córners, tarjetas, tiros) supera al promedio de la liga? null = sin evidencia */
+function skillOf(m,v){
+  if(v==='goles'||v==='btts')return true;
+  const b=btOf(m);if(!b||!b.conteos||!b.conteos[v])return null;
+  return b.conteos[v].mejora>=.01;
+}
 function compute(m){
   const out={};
   for(const grp of [['1','X','2'],['O2.5','U2.5']]){
     if(!grp.every(s=>m.sel[s]))continue;
     if(!grp.every(s=>m.sel[s].avg)){grp.forEach(s=>{const q=m.sel[s].pm;out[s]={pm:q,pmk:q,p:q,o:null,edge:null}});continue}
     const inv=grp.map(s=>1/m.sel[s].avg),tot=inv.reduce((a,b)=>a+b,0);
-    grp.forEach((s,i)=>{const pmk=inv[i]/tot,p=(1-S.w)*m.sel[s].pm+S.w*pmk,o=m.sel[s].max;out[s]={pm:m.sel[s].pm,pmk,p,o,edge:p*o-1}});
+    const w=wOf(m);grp.forEach((s,i)=>{const pmk=inv[i]/tot,p=(1-w)*m.sel[s].pm+w*pmk,o=m.sel[s].max;out[s]={pm:m.sel[s].pm,pmk,p,o,edge:p*o-1}});
   }
   return out;
 }
 const kelly=(p,o,cap)=>Math.max(0,Math.min(cap,(p*o-1)/(o-1)*.25));
 const lvl=p=>p>=.7?['a','Alta']:p>=.55?['m','Media']:['b','Baja'];
+const nivel=x=>{const l=lvl(x.p);return (x.dud&&l[0]==='a')?['m','Media']:l};
+const dudTag=x=>x.dud?`<span class="lvl b" title="${x.sk===null?'Sin backtest para esta variable en esta liga':'En el backtest este modelo no supera al promedio de la liga'}">≈ liga</span>`:'';
 const lvlColor=p=>p>=.7?'var(--good)':p>=.55?'var(--warn)':'var(--draw)';
 
 function catOpts(m,c,all){
-  const w=S.w,cats=[],ex=(v,l)=>(m.extra||[]).find(e=>e.var===v&&e.l===l);
+  const w=wOf(m),cats=[],ex=(v,l)=>(m.extra||[]).find(e=>e.var===v&&e.l===l);
   if(c['1']&&c['X']&&c['2']){
     cats.push({cat:'Resultado',opts:[['1','Gana '+m.home],['X','Empate'],['2','Gana '+m.away]].map(([id,t])=>({id,t,p:c[id].p,o:c[id].o,e:c[id].edge}))});
     cats.push({cat:'Doble oportunidad',opts:[['DC:1X','Local o empate',c['1'].p+c['X'].p],['DC:X2','Visita o empate',c['2'].p+c['X'].p],['DC:12','Local o visita',c['1'].p+c['2'].p]].map(([id,t,p])=>({id,t,p,o:null,e:null}))});
@@ -62,8 +73,9 @@ function catOpts(m,c,all){
       let po=L.o,co=null,cu=null,io=`${v}:O:${L.l}`,iu=`${v}:U:${L.l}`;const e=ex(v,L.l);
       if(v==='goles'&&L.l===2.5&&c['O2.5']){po=c['O2.5'].p;co=c['O2.5'].o;cu=c['U2.5'].o;io='O2.5';iu='U2.5'}
       else if(e){const pmk=(1/e.cuo)/(1/e.cuo+1/e.cuu);po=(1-w)*e.po+w*pmk;co=e.cuo;cu=e.cuu}
-      opts.push({id:io,t:`Más de ${L.l} ${suf}`,p:po,o:co,e:co?po*co-1:null});
-      opts.push({id:iu,t:`Menos de ${L.l} ${suf}`,p:1-po,o:cu,e:cu?(1-po)*cu-1:null});
+      const sk=skillOf(m,v),dud=sk!==true;
+      opts.push({id:io,t:`Más de ${L.l} ${suf}`,p:po,o:co,e:co?po*co-1:null,dud,sk});
+      opts.push({id:iu,t:`Menos de ${L.l} ${suf}`,p:1-po,o:cu,e:cu?(1-po)*cu-1:null,dud,sk});
     });
     cats.push({cat:nombre,opts});
   };
@@ -95,7 +107,7 @@ function enrich(m){const c=compute(m),r=recos(m,c);
   const vivo=m.est==='vivo';
   const val=vivo?null:(r.filter(x=>x.e!=null&&x.e>=.03&&x.e<=SUSP).sort((a,b)=>b.e-a.e)[0]||null);
   const hot=!vivo&&r.some(x=>x.e!=null&&x.e>SUSP);
-  return {m,c,r,risk:riskOpts(m,c),top:r.find(x=>x.cat!=='Doble oportunidad')||r[0],val,hot,k:key(m)};
+  return {m,c,r,risk:riskOpts(m,c),top:r.find(x=>x.cat!=='Doble oportunidad'&&!x.dud)||r.find(x=>x.cat!=='Doble oportunidad')||r[0],val,hot,k:key(m)};
 }
 
 /* ===================== utilidades de UI ===================== */
@@ -252,9 +264,10 @@ function filtersHtml(){
     <div class="fl">Ligas<span><button class="lnk" data-liga-all>todas</button><span class="mut"> · </span><button class="lnk" data-liga-none>ninguna</button></span></div>
     <div class="lgs">${Object.keys(S.data.meta.ligas).map(l=>
       `<button class="lrow ${S.ligas.has(l)?'on':''}" data-liga="${l}" aria-pressed="${S.ligas.has(l)}"><span class="cbx">${S.ligas.has(l)?ic('check'):''}</span><span class="ln">${esc(ligaName(l))}</span><em>${counts[l]||0}</em></button>`).join('')}</div>
-    <div class="fl" title="Qué tanto pesa la cuota del mercado frente al modelo propio">Peso del mercado<b class="wv num">${w}%</b></div>
-    <input type="range" data-f="w" min="0" max="100" step="5" value="${w}" aria-label="Peso del mercado">
-    <div class="wh">${wHint()}</div>
+    <div class="fl" title="Qué tanto pesa la cuota del mercado frente al modelo propio">Peso del mercado<b class="wv num">${S.wAuto?'auto':w+'%'}</b></div>
+    <label class="sw" style="padding:0 8px 6px"><input type="checkbox" data-f="wauto" ${S.wAuto?'checked':''}> Validado por liga (recomendado)</label>
+    <input type="range" data-f="w" min="0" max="100" step="5" value="${w}" aria-label="Peso del mercado manual" ${S.wAuto?'disabled':''}>
+    <div class="wh">${S.wAuto?'Cada liga usa el peso que mejor predijo en su backtest (50–100%). Donde no hay backtest se usa el manual ('+w+'%).':wHint()}</div>
     <label class="sw" style="margin-top:8px"><input type="checkbox" data-f="only" ${S.only?'checked':''}> Solo con valor</label>`;
 }
 function buildFilters(){
@@ -274,7 +287,7 @@ function viewTop(){
   const rows=S.data.partidos.filter(m=>S.ligas.has(m.liga)&&m.est!=='vivo').map(enrich);
   const items=[];rows.forEach(o=>o.r.forEach(x=>items.push({...x,ob:o})));
   const val=items.filter(x=>x.e!=null&&x.e>=.03&&x.e<=SUSP&&x.p>=.2).sort((a,b)=>b.e-a.e).slice(0,10);
-  const conf=items.filter(x=>x.p>=.7).sort((a,b)=>b.p-a.p).slice(0,10);
+  const conf=items.filter(x=>x.p>=.7&&!x.dud).sort((a,b)=>b.p-a.p).slice(0,10);
   const risky=[];rows.forEach(o=>{if(o.risk[0])risky.push({...o.risk[0],ob:o})});
   risky.sort((a,b)=>b.p-a.p);
   const li=x=>`<button class="mrow" style="grid-template-columns:42px minmax(0,1fr) auto 16px" data-k="${esc(x.ob.k)}">
@@ -636,6 +649,7 @@ function viewHist(){
 }
 
 /* ---------- plan de apuestas según saldo ---------- */
+const PLAN_EDGE=.05; // en el backtest, exigir 3% dio ROI negativo en varias ligas; 5% fue el umbral más estable
 const PERFILES={con:{n:'Conservador',frac:.10,cap:.01,exp:.06},mod:{n:'Moderado',frac:.25,cap:.02,exp:.12},agr:{n:'Agresivo',frac:.50,cap:.03,exp:.20}};
 function planPicks(saldo){
   const P=PERFILES[S.plan.perfil]||PERFILES.mod;
@@ -643,7 +657,7 @@ function planPicks(saldo){
   S.data.partidos.filter(m=>S.ligas.has(m.liga)&&m.est!=='vivo').forEach(m=>{
     const c=compute(m);let best=null;
     catOpts(m,c,false).forEach(k=>{if(k.cat==='Doble oportunidad')return;
-      k.opts.forEach(x=>{if(x.o&&x.e!=null&&x.e>=.03&&x.e<=SUSP&&x.p>=.25&&x.p<=TRIV&&(!best||x.e>best.e))best={...x,cat:k.cat,m}})});
+      k.opts.forEach(x=>{if(x.o&&x.e!=null&&x.e>=PLAN_EDGE&&x.e<=SUSP&&x.p>=.25&&x.p<=TRIV&&!x.dud&&(!best||x.e>best.e))best={...x,cat:k.cat,m}})});
     if(best)cands.push(best);
   });
   const f=x=>Math.max(0,Math.min(P.cap,(x.p*x.o-1)/(x.o-1)*P.frac));
@@ -668,7 +682,7 @@ function viewPlan(){
     <div><div class="mut" style="font-size:12px;margin-bottom:4px">Máx. apuestas</div><div class="seg">${[3,5,8].map(v=>`<button class="${S.plan.n===v?'on':''}" data-nplan="${v}">${v}</button>`).join('')}</div></div>
   </div>
   <div class="note" style="margin:-2px 2px 12px">${P.n}: Kelly al ${Math.round(P.frac*100)}%, máx. ${pc(P.cap,0)} del saldo por apuesta y ${pc(P.exp,0)} en total. Usa los filtros de ligas y peso del mercado del lateral.</div>`;
-  if(!pl.top.length)return h+`<div class="empty"><b>Sin opciones con valor ahora</b>Ninguna selección con cuota de casa supera el 3% de edge (o todas pasan del 15% y se descartan por sospechosas). Esperar también es una decisión.</div>`;
+  if(!pl.top.length)return h+`<div class="empty"><b>Sin opciones con valor ahora</b>Ninguna selección con cuota de casa supera el 5% de edge (o todas pasan del 15% y se descartan por sospechosas). Esperar también es una decisión.</div>`;
   h+=`<div class="kpis kpis-big">
     <div class="kpi"><div class="l">Invertir</div><div class="v num">${pl.invert}</div></div>
     <div class="kpi"><div class="l">% del saldo</div><div class="v num">${saldo?pc(pl.invert/saldo,1):'—'}</div></div>
@@ -730,31 +744,44 @@ function viewRes(){
 }
 
 function viewFiab(){
-  const bt=S.data.meta.backtest||{},ks=Object.keys(bt);
-  const K=['0.0','0.25','0.5','0.75','1.0'],k=K.reduce((p,c)=>Math.abs(+c-S.w)<Math.abs(+p-S.w)?c:p);
-  let wins=0;
-  const rows=ks.map(l=>{const x=bt[l].logloss,mo=x['0.0'],me=x['1.0'],mi=x[k];if(me<mo)wins++;
-    const sc=v=>Math.max(4,Math.min(100,(v-.9)/.2*100));
-    const line=(n,v,col)=>`<div class="bt-row"><span class="tx2">${n}</span><div class="bar2"><i style="width:${sc(v)}%;background:${col}"></i></div><b class="num">${v.toFixed(3)}</b></div>`;
-    return `<div class="card" style="margin-bottom:10px"><div class="row" style="justify-content:space-between"><b>${esc(ligaName(l))}</b>
-      <span class="mut" style="font-size:12px">${bt[l].n} partidos · ${me<mo?'gana el mercado':'gana el modelo'}</span></div>
-      ${line('Solo modelo',mo,'var(--draw)')}${line('Solo mercado',me,'var(--home)')}${line('Tu mezcla ('+Math.round(S.w*100)+'%)',mi,'var(--ac)')}</div>`}).join('');
-  return `<div class="ph"><h1>Fiabilidad</h1><p>Qué tan bien funciona realmente el modelo, medido con partidos que no vio al entrenarse.</p></div>
-  <div class="callout">${ic('alert')}<div><b>${ks.length?`El mercado supera al modelo en ${wins} de ${ks.length} ligas.`:'Aún no hay backtest.'}</b>
-    Por eso la probabilidad final mezcla ambos y por defecto da 75% de peso a las cuotas. Un edge grande casi siempre indica error del modelo, no una oportunidad.</div></div>
-  <div class="sec"><h3>Backtest 1X2 · log-loss (menor es mejor)</h3></div>
-  ${rows||'<div class="empty">Sin datos de backtest en esta actualización.</div>'}
+  const bt=S.data.meta.backtest||{},ks=Object.keys(bt).filter(l=>bt[l]&&bt[l].logloss);
+  if(!ks.length)return `<div class="ph"><h1>Fiabilidad</h1></div><div class="empty"><b>Sin backtest en esta actualización</b>El backtest diario todavía no se ha ejecutado.</div>`;
+  let gana=0,aporta=0,roiTot={},nTot={};
+  const VN2={goles1t:'Goles 1T',corners:'Córners',tarjetas:'Tarjetas'};
+  const cards=ks.map(l=>{
+    const x=bt[l],ll=x.logloss,mo=ll['0.0'],me=ll['1.0'],mi=x.ll_opt!=null?x.ll_opt:me,w=x.w_opt!=null?x.w_opt:.75,p=x.params||{};
+    if(me<mo)gana++;if(w<.95)aporta++;
+    const lo=Math.min(mo,me,mi),hi=Math.max(mo,me,mi),sc=v=>hi>lo?8+(v-lo)/(hi-lo)*88:50;
+    const line=(n,v,col)=>`<div class="bt-row"><span class="tx2">${n}</span><div class="bar2"><i style="width:${sc(v)}%;background:${col}"></i></div><b class="num">${v.toFixed(4)}</b></div>`;
+    const roi=x.roi||{};Object.entries(roi).forEach(([u,r])=>{if(r.roi!=null){roiTot[u]=(roiTot[u]||0)+r.ganancia;nTot[u]=(nTot[u]||0)+r.apuestas}});
+    const roiHtml=Object.keys(roi).length?`<div class="scroll"><table class="t" style="margin-top:8px"><thead><tr><th>Apostar si edge ≥</th><th>Apuestas</th><th>ROI simulado</th></tr></thead><tbody>${Object.entries(roi).map(([u,r])=>`<tr><td>${u}%</td><td class="num">${r.apuestas}</td><td class="num ${r.roi>0?'good':r.roi<0?'bad':''}">${r.roi==null?'—':(r.roi>0?'+':'')+(r.roi*100).toFixed(1)+'%'}${r.apuestas<40?' <span class="mut">(pocas)</span>':''}</td></tr>`).join('')}</tbody></table></div>`:'';
+    const cont=x.conteos||{};
+    const chips=Object.keys(VN2).map(v=>{const c=cont[v];if(!c)return `<span class="hc na" title="Sin datos suficientes"><span>•</span>${VN2[v]}: sin backtest</span>`;
+      const ok=c.mejora>=.01;return `<span class="hc ${ok?'ok':'ko'}" title="Brier modelo ${c.brier_modelo} vs promedio de liga ${c.brier_liga} (${c.n} partidos, línea ${c.linea})"><span>${ok?'✓':'✕'}</span>${VN2[v]}: ${(c.mejora*100>0?'+':'')+(c.mejora*100).toFixed(1)}% vs liga</span>`}).join('');
+    return `<div class="card" style="margin-bottom:10px">
+      <div class="row" style="justify-content:space-between;align-items:baseline"><b>${esc(ligaName(l))}</b><span class="mut" style="font-size:12px">${x.n} partidos · peso de mercado validado <b class="num" style="color:var(--tx)">${Math.round(w*100)}%</b>${w>=.95?' · el modelo no aporta':''}</span></div>
+      <div class="mut" style="font-size:12px;margin:2px 0 8px">Parámetros elegidos: memoria ${p.vida||365} días · regularización ${p.reg!=null?p.reg:'—'} · xG ${p.xg?'sí ('+Math.round(p.xg*100)+'%)':'no'}</div>
+      ${line('Solo modelo',mo,'var(--draw)')}${line('Solo mercado',me,'var(--home)')}${line('Mezcla validada',mi,'var(--ac)')}
+      ${x.ou?`<div class="note">Más/menos 2.5: modelo ${x.ou.modelo.toFixed(4)} · mercado ${x.ou.mercado.toFixed(4)} · mezcla ${x.ou.ll_opt.toFixed(4)} (peso ${Math.round(x.ou.w_opt*100)}%).</div>`:''}
+      ${roiHtml}
+      <div class="hcs" style="margin-top:8px">${chips}</div></div>`}).join('');
+  const tot=Object.keys(roiTot).map(u=>`<div class="vt"><div class="l">Edge ≥ ${u}% · todas las ligas</div><div class="v num ${roiTot[u]/nTot[u]>0?'good':'bad'}">${(roiTot[u]/nTot[u]>0?'+':'')+(roiTot[u]/nTot[u]*100).toFixed(1)}%</div><div class="s">${nTot[u]} apuestas simuladas a cuota de cierre</div></div>`).join('');
+  return `<div class="ph"><h1>Fiabilidad</h1><p>Qué tan bien predice el modelo, medido con partidos que no vio al entrenarse (validación walk-forward, ~250 partidos por liga). Se recalcula cada noche y elige los parámetros que mejor funcionaron.</p></div>
+  <div class="callout">${ic('alert')}<div><b>El mercado por sí solo supera al modelo en ${gana} de ${ks.length} ligas; mezclados, el modelo aporta una mejora pequeña en ${aporta} de ${ks.length}.</b> Por eso cada liga usa su propio peso de mercado (filtro «Validado por liga»). Donde el peso es 100%, la probabilidad es la del mercado y cualquier «edge» viene solo de comparar cuotas entre casas.</div></div>
+  <div class="sec"><h3>Apuestas simuladas (1 unidad, cuota de cierre máxima, mezcla validada)</h3><div class="card"><div class="vgrid">${tot}</div>
+    <div class="note">Resultado muy variable entre ligas: es compatible con «sin ventaja clara». Un ROI positivo con pocas apuestas no es evidencia. La cuota máxima del mercado suele ser mayor que la de tu casa, así que el ROI real sería menor.</div></div></div>
+  <div class="sec"><h3>Por liga</h3></div>${cards}
   <div class="two" style="margin-top:16px;align-items:start">
     <div class="card"><h3 style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--mut);margin-bottom:8px">Cómo se calcula</h3>
       <ol class="tx2" style="padding-left:18px;font-size:13px;line-height:1.7">
-        <li>Modelo Dixon-Coles: ataque, defensa y localía por equipo con peso al pasado reciente.</li>
+        <li>Dixon-Coles: ataque, defensa y localía por equipo, con más peso al pasado reciente (memoria validada por liga) y xG donde ayuda.</li>
         <li>Se quita el margen de la casa a las cuotas para obtener la probabilidad del mercado.</li>
-        <li>Se mezclan según tu control de confianza y se compara con la cuota para hallar el edge.</li>
-        <li>Córners, tarjetas y tiros usan un modelo de conteo (Binomial Negativa).</li></ol></div>
+        <li>Se mezclan con el peso que mejor predijo en el backtest de esa liga y se compara con la cuota para hallar el edge.</li>
+        <li>Córners, tarjetas y goles 1T: modelo de conteo (Binomial Negativa) comparado con el promedio de la liga. Si no lo supera, se marca «≈ liga» y no puede ser «Alta».</li></ol></div>
     <div class="card"><h3 style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--mut);margin-bottom:8px">Límites</h3>
       <ul class="tx2" style="padding-left:18px;font-size:13px;line-height:1.7">
-        <li>Solo el 1X2 está validado. Córners, tarjetas y tiros <b>no</b> tienen backtest contra mercado.</li>
-        <li>Liga 1 Perú, Champions, Europa League, Libertadores y Sudamericana: sin cuotas de referencia ni backtest. Son solo estimaciones del modelo con pocos partidos por equipo; úsalas con más cautela. La Liga 1 solo tiene cuotas de Betano en la jornada próxima y fuera de la nube.</li>
+        <li>Liga 1 Perú, Champions, Europa League, Libertadores y Sudamericana: sin cuotas de referencia ni backtest. Son estimaciones con pocos partidos por equipo; úsalas con más cautela.</li>
+        <li>Tiros a puerta: sin backtest. Se muestra como «≈ liga».</li>
         <li>No se consideran lesiones, alineaciones ni árbitro.</li>
         <li>Datos: football-data.co.uk, ESPN y Betano. Pueden retrasarse o cambiar.</li></ul></div>
   </div>`;
@@ -820,14 +847,14 @@ function tabResumen(o){
   const subTxt=x=>x.o?`Paga <b class="num">${x.o.toFixed(2)}</b> · edge <b class="${x.e>SUSP?'warn':x.e>0?'good':'bad'}">${x.e>0?'+':''}${pc(x.e,1)}</b>${x.e>SUSP?' ⚠':''}`
     :`Sin cuota de casa · valor si paga ≥ <b class="num">${(1/x.p).toFixed(2)}</b>`;
   const probable=`<div class="sec first"><h3>Lo más probable</h3><div class="card">`+r.map(x=>{
-    const [k,n]=lvl(x.p);
-    return `<div class="rr"><div><div class="c">${esc(x.cat)}</div><div class="t">${esc(x.t)}<span class="lvl ${k}">${n}</span></div></div>
+    const [k,n]=nivel(x);
+    return `<div class="rr"><div><div class="c">${esc(x.cat)}</div><div class="t">${esc(x.t)}<span class="lvl ${k}">${n}</span>${dudTag(x)}</div></div>
       <div class="pr">${payPill(x)}<span class="p num">${pc(x.p)}</span>${addBtn(o.k,x.id,x.t)}</div><div class="mb ${k==='m'?'m2':k}"><i style="width:${Math.min(100,x.p*100)}%"></i></div><div class="s">${subTxt(x)}</div></div>`}).join('')+
-    `</div><div class="note">Probabilidad = modelo ${Math.round((1-S.w)*100)}% / mercado ${Math.round(S.w*100)}% donde hay cuotas. No es una garantía.</div></div>`;
+    `</div><div class="note">Probabilidad = modelo ${Math.round((1-wOf(m))*100)}% / mercado ${Math.round(wOf(m)*100)}% donde hay cuotas${S.wAuto&&btOf(m)&&btOf(m).w_opt!=null?' (peso validado para esta liga)':''}. «≈ liga» = sin ventaja demostrada frente al promedio de la liga. No es una garantía.</div></div>`;
   let risk='';
   if(o.risk&&o.risk.length){
     risk=`<div class="sec first"><h3>Apuesta arriesgada · la que más podría salir</h3><div class="card risk">`+o.risk.slice(0,2).map((x,i)=>
-      `<div class="rr"><div><div class="c">${i===0?'La más probable de las arriesgadas · ':''}${esc(x.cat)}</div><div class="t">${esc(x.t)}<span class="lvl m">Riesgo alto</span></div></div>
+      `<div class="rr"><div><div class="c">${i===0?'La más probable de las arriesgadas · ':''}${esc(x.cat)}</div><div class="t">${esc(x.t)}<span class="lvl m">Riesgo alto</span>${dudTag(x)}</div></div>
         <div class="pr">${payPill(x)}<span class="p num">${pc(x.p)}</span>${addBtn(o.k,x.id,x.t)}</div>
         <div class="s">Sale ~1 de cada ${(1/x.p).toFixed(1)} veces · ${subTxt(x)}</div></div>`).join('')+
       `</div><div class="note">Paga ${RISK_ODDS.toFixed(2)} o más y tiene al menos ${Math.round(RISK_MIN*100)}% de probabilidad. Monto pequeño; no es una garantía.</div></div>`;
@@ -841,7 +868,7 @@ function tabResumen(o){
   h+=`<div class="sec"><h3>Tendencias clave · qué suele pasar con cada equipo</h3>${tendenciasHtml(m,4)}<div class="note">Sobre sus últimos 6 partidos y su rol en este partido. Detalle completo en “Forma y rivales”.</div></div>`;
   if(m.extra&&m.extra.length){
     h+=`<div class="sec"><h3>Cuotas reales de ${esc(m.casa)}</h3><div class="card scroll"><table class="t"><thead><tr><th>Mercado</th><th>Más / Sí</th><th>Menos / No</th></tr></thead><tbody>`+
-      m.extra.map(e=>{const pmk=(1/e.cuo)/(1/e.cuo+1/e.cuu),po=(1-S.w)*e.po+S.w*pmk,pu=1-po,eo=po*e.cuo-1,eu=pu*e.cuu-1;
+      m.extra.map(e=>{const w=wOf(m),pmk=(1/e.cuo)/(1/e.cuo+1/e.cuu),po=(1-w)*e.po+w*pmk,pu=1-po,eo=po*e.cuo-1,eu=pu*e.cuu-1;
         const cell=(p,q,ed)=>`<td><b class="num">${pc(p)}</b> <span class="mut">@${q.toFixed(2)}</span> <span class="num ${ed>SUSP?'warn':ed>0?'good':'bad'}">${ed>SUSP?'⚠ ':''}${ed>0?'+':''}${pc(ed,1)}</span></td>`;
         return `<tr><td>${esc(e.var==='btts'?'Ambos anotan':e.nombre)}${e.l!=null?` <span class="mut">${e.l}</span>`:''}</td>${cell(po,e.cuo,eo)}${cell(pu,e.cuu,eu)}</tr>`}).join('')+
       `</tbody></table></div><div class="note">Sin backtest en estos mercados. ⚠ = edge mayor al ${pc(SUSP)}: suele ser error del modelo.</div></div>`;
@@ -1059,6 +1086,7 @@ document.addEventListener('input',e=>{
     document.querySelectorAll('.wv').forEach(x=>x.textContent=t.value+'%');
     document.querySelectorAll('.wh').forEach(x=>x.textContent=wHint());
     clearTimeout(input.t);input.t=setTimeout(()=>{if(S.view==='partidos')paintDyn();else keepScroll(renderMain);renderDetail()},50)}
+  else if(t.dataset&&t.dataset.f==='wauto'){S.wAuto=t.checked;LS.set('el.wauto',S.wAuto);buildFilters();if(S.view==='partidos')paintDyn();else keepScroll(renderMain);renderDetail()}
   else if(t.dataset&&t.dataset.f==='only'){S.only=t.checked;LS.set('el.only',S.only);
     document.querySelectorAll('[data-f="only"]').forEach(x=>{x.checked=S.only});
     if(S.view==='partidos')paintDyn();else keepScroll(renderMain)}

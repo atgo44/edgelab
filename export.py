@@ -21,7 +21,11 @@ sys.stdout.reconfigure(encoding="utf-8")
 OUT = Path(__file__).parent / "site" / "data"
 HIST = Path(__file__).parent / "cache" / "pred_history.json"
 BT_CACHE = Path(__file__).parent / "cache" / "backtest.json"
-BT_HORAS = 24
+try:  # resultado del backtest diario; si aún no existe, la copia "semilla" guardada en el repositorio
+    _bt_src = BT_CACHE if BT_CACHE.exists() else Path(__file__).parent / "backtest_seed.json"
+    BT_PARAMS = json.loads(_bt_src.read_text(encoding="utf-8")) if _bt_src.exists() else {}
+except Exception:
+    BT_PARAMS = {}
 DIAS_HIST = 21
 ODDS_COLS = {s: (v[0], v[1]) for s, v in SEL.items()}
 # competiciones cuyos datos vienen de ESPN (sin cuotas en los datos gratuitos)
@@ -218,14 +222,19 @@ def partidos(div: str, dias: int):
     fx = fx[(fx.Date >= hoy) & (fx.Date <= hoy + pd.Timedelta(days=dias))]
     if fx.empty:
         return [], hist
-    reg = 2.0 if div in ESPN_COMPS else 0.5   # más regularización donde cada equipo juega pocos partidos
-    m = DixonColes(reg=reg).fit(hist)
+    # parámetros validados por el backtest de la liga (cache/backtest.json); si no hay, valores prudentes
+    bt = BT_PARAMS.get(div, {})
+    p = bt.get("params", {})
+    reg = p.get("reg", 2.0 if div in ESPN_COMPS else 0.5)   # más regularización donde cada equipo juega pocos partidos
+    m = DixonColes(vida_media_dias=p.get("vida", 365), reg=reg, xg_peso=p.get("xg", 0.0)).fit(hist)
     emp = cuotas_pe.emparejar(cuotas_pe.cargar(), m.teams) if div == "PER" else {}
     cm = {}
+    reg_cont = {k: v.get("reg", 4.0) for k, v in bt.get("conteos", {}).items()}
     for k, (hc, ac, _) in VARS.items():
         if hc in hist and hist[hc].notna().sum() >= 60:
             try:
-                cm[k] = CountModel(reg=reg).fit(hist, hc, ac)
+                # conteos: la regularización validada por variable; por defecto fuerte (cerca del promedio de liga)
+                cm[k] = CountModel(reg=reg_cont.get(k, max(reg, 4.0))).fit(hist, hc, ac)
             except Exception as e:
                 print(f"  {k}: {e}")
     out = []
@@ -293,12 +302,10 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
 
     todos, resultados, bt, ligas = [], [], {}, {}
-    bt_prev, bt_fresco = {}, False
-    try:
-        if BT_CACHE.exists() and (pd.Timestamp.now() - pd.Timestamp(BT_CACHE.stat().st_mtime, unit='s')).total_seconds() < BT_HORAS * 3600 + 7200:
-            bt_prev, bt_fresco = json.loads(BT_CACHE.read_text(encoding='utf-8')), True
-    except Exception:
-        bt_prev, bt_fresco = {}, False
+    # el backtest completo (búsqueda de parámetros) lo escribe `python backtest.py --todas` (workflow diario);
+    # aquí solo se usa su resultado. Si falta y no se pidió --sin-backtest, se calcula la versión rápida.
+    bt_prev = dict(BT_PARAMS)
+    bt_fresco = bool(bt_prev)
     for div in a.ligas:
         if div == "PER" and not peru.disponible():
             print("[PER] omitida: falta API_FOOTBALL_KEY")
@@ -328,16 +335,17 @@ def main():
                         resultados.append(x)
             except Exception as ex:
                 print("  ESPN resultados:", ex)
-        if not a.sin_backtest and div not in ESPN_COMPS and bt_fresco and div in bt_prev:
-            bt[div] = bt_prev[div]
+        if div in bt_prev:
+            bt[div] = {k: v for k, v in bt_prev[div].items() if k != "grid"}   # la rejilla completa no hace falta en la web
         elif not a.sin_backtest and div not in ESPN_COMPS:
-            r = backtest.run(div, n=150, paso=21)
+            r = backtest.run(div, n=250, paso=21, rapido=True)
             if r:
-                bt[div] = {"n": r["n"], "logloss": {str(k): round(v, 4) for k, v in r["logloss"].items()}}
+                bt[div] = {k: v for k, v in r.items() if k != "grid"}
+                BT_PARAMS[div] = r
 
     if bt and not bt_fresco:
         BT_CACHE.parent.mkdir(exist_ok=True)
-        BT_CACHE.write_text(json.dumps(bt, ensure_ascii=False), encoding='utf-8')
+        BT_CACHE.write_text(json.dumps(BT_PARAMS, ensure_ascii=False), encoding='utf-8')
     if a.sin_backtest and not bt:  # conserva el backtest previo si no se recalcula
         try:
             bt = json.loads((OUT / "picks.json").read_text(encoding="utf-8"))["meta"].get("backtest", {})

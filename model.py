@@ -18,9 +18,10 @@ def _tau(x, y, lam, mu, rho):
 
 
 class DixonColes:
-    def __init__(self, vida_media_dias: float = 365, reg: float = 0.5):
+    def __init__(self, vida_media_dias: float = 365, reg: float = 0.5, xg_peso: float = 0.0):
         self.xi = np.log(2) / vida_media_dias
         self.reg = reg
+        self.xg_peso = xg_peso  # 0 = solo goles; 0.5 = mitad goles, mitad xG (donde haya xG)
 
     def fit(self, df: pd.DataFrame, fecha_ref=None):
         fecha_ref = fecha_ref or df["Date"].max()
@@ -32,6 +33,13 @@ class DixonColes:
         ai = df.AwayTeam.map(ix).to_numpy()
         hg = df.FTHG.to_numpy()
         ag = df.FTAG.to_numpy()
+        # objetivo del término Poisson: goles, o mezcla goles/xG cuando el partido tiene xG
+        yh, ya = hg.astype(float), ag.astype(float)
+        if self.xg_peso > 0 and "HxG" in df and "AxG" in df:
+            xh, xa = df["HxG"].to_numpy(float), df["AxG"].to_numpy(float)
+            ok = ~np.isnan(xh) & ~np.isnan(xa)
+            yh = np.where(ok, (1 - self.xg_peso) * yh + self.xg_peso * xh, yh)
+            ya = np.where(ok, (1 - self.xg_peso) * ya + self.xg_peso * xa, ya)
         w = np.exp(-self.xi * (fecha_ref - df.Date).dt.days.to_numpy())
 
         def nll(th):
@@ -39,9 +47,9 @@ class DixonColes:
             dfn = th[n:2 * n]
             lam = np.exp(att[hi] + dfn[ai] + th[2 * n])
             mu = np.exp(att[ai] + dfn[hi])
-            ll = (hg * np.log(lam) - lam - gammaln(hg + 1)
-                  + ag * np.log(mu) - mu - gammaln(ag + 1)
-                  + np.log(_tau(hg, ag, lam, mu, th[2 * n + 1])))
+            ll = (yh * np.log(lam) - lam - gammaln(yh + 1)
+                  + ya * np.log(mu) - mu - gammaln(ya + 1)
+                  + np.log(_tau(hg, ag, lam, mu, th[2 * n + 1])))  # la corrección de marcadores bajos usa los goles reales
             return -(w * ll).sum() + self.reg * (att @ att + dfn @ dfn)
 
         x0 = np.zeros(2 * n + 2)

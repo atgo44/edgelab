@@ -29,13 +29,17 @@ jobs:
       - name: Historial de predicciones (para marcar aciertos y fallos)
         uses: actions/cache@v4
         with:
-          path: |
-            cache/pred_history.json
-            cache/backtest.json
+          path: cache/pred_history.json
           key: pred-${{ github.run_id }}
           restore-keys: pred-
+      - name: Parámetros validados por el backtest diario
+        uses: actions/cache/restore@v4
+        with:
+          path: cache/backtest.json
+          key: bt-
+          restore-keys: bt-
       - name: Generar datos
-        run: python export.py --dias 10
+        run: python export.py --dias 14 --sin-backtest
       - name: Versionar recursos (evita que el navegador use archivos viejos)
         run: |
           sed -i "s#app.js\"#app.js?v=${GITHUB_SHA}\"#; s#styles.css\"#styles.css?v=${GITHUB_SHA}\"#" site/index.html
