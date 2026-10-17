@@ -23,7 +23,7 @@ ALIAS = {  # nombre ESPN normalizado -> nombre football-data
     "paris saint germain": "Paris SG", "olympique marseille": "Marseille", "olympique lyonnais": "Lyon",
     "inter milan": "Inter", "internazionale": "Inter", "ac milan": "Milan", "as roma": "Roma",
     "sporting cp": "Sp Lisbon", "sporting lisbon": "Sp Lisbon", "benfica": "Benfica",
-    "hull city": "Hull", "athletic bilbao": "Ath Bilbao", "stade rennais": "Rennes", "feyenoord rotterdam": "Feyenoord",
+    "hull city": "Hull", "athletic bilbao": "Ath Bilbao", "athletic": "Ath Bilbao", "stade rennais": "Rennes", "feyenoord rotterdam": "Feyenoord",
     "ajax amsterdam": "Ajax", "psv eindhoven": "PSV Eindhoven", "az alkmaar": "AZ Alkmaar", "stade brestois": "Brest",
     "stade de reims": "Reims", "rc lens": "Lens", "lille osc": "Lille", "as monaco": "Monaco", "ogc nice": "Nice",
     "fc porto": "Porto", "sporting braga": "Sp Braga", "vitoria guimaraes": "Guimaraes", "hellas verona": "Verona",
@@ -49,7 +49,9 @@ def _map(nombre, conocidos, cache):
     if nombre in cache:
         return cache[nombre]
     n = _n(nombre)
-    r = ALIAS.get(n)
+    # el alias se busca con el nombre completo (sin tildes ni signos) y con el normalizado (sin "fc", "club"...)
+    crudo = " ".join(re.sub(r"[^a-z0-9 ]", " ", unicodedata.normalize("NFKD", nombre).encode("ascii", "ignore").decode().lower()).split())
+    r = ALIAS.get(crudo) or ALIAS.get(n)
     if r is None or r not in conocidos:
         mejor, sc = None, 0.0
         for c in conocidos:
