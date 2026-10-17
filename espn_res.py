@@ -117,5 +117,5 @@ def proximos(div: str, conocidos: set, dias: int = 14) -> pd.DataFrame:
         if not h or not a or h == a or (h, a, d) in vistos:
             continue
         vistos.add((h, a, d))
-        out.append({"Date": d, "Time": row["Time"], "HomeTeam": h, "AwayTeam": a, "zona": "lima"})
+        out.append({"Date": d, "Time": row["Time"], "HomeTeam": h, "AwayTeam": a, "zona": "lima", "espn_id": row.get("espn_id", "")})
     return pd.DataFrame(out)

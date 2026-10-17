@@ -50,7 +50,7 @@ def _row(e) -> dict:
         else pd.Timestamp(e["date"]).tz_convert("UTC").tz_localize(None)
     loc = ini + UTC_PERU
     row = {"Date": loc.normalize(), "Time": loc.strftime("%H:%M"), "HomeTeam": h["team"]["displayName"],
-           "AwayTeam": a["team"]["displayName"], "completo": bool(e["status"]["type"]["completed"]),
+           "AwayTeam": a["team"]["displayName"], "espn_id": str(e.get("id", "")), "completo": bool(e["status"]["type"]["completed"]),
            "programado": e["status"]["type"]["name"] == "STATUS_SCHEDULED"}
     if row["completo"]:
         row["FTHG"], row["FTAG"] = int(h["score"]), int(a["score"])

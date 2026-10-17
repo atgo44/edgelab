@@ -214,6 +214,8 @@ def partidos(div: str, dias: int):
         try:
             ex = espn_res.proximos(div, set(hist.HomeTeam) | set(hist.AwayTeam), dias)
             if len(ex):
+                ids = {(h, a): i for h, a, i in zip(ex.HomeTeam, ex.AwayTeam, ex.espn_id) if i}
+                fx["espn_id"] = [ids.get((h, a), "") for h, a in zip(fx.HomeTeam, fx.AwayTeam)]
                 ya = set(zip(fx.HomeTeam, fx.AwayTeam))
                 ex = ex[[(h, a) not in ya for h, a in zip(ex.HomeTeam, ex.AwayTeam)]]
                 fx = pd.concat([fx, ex], ignore_index=True)
@@ -286,6 +288,8 @@ def partidos(div: str, dias: int):
                     "hora": None if pd.isna(r.get("Time")) else str(r.get("Time")),
                     "zona": "lima" if (div in ESPN_COMPS or r.get("zona") == "lima") else "uk",
                     "home": r.HomeTeam, "away": r.AwayTeam, "sel": sel,
+                    "espn": ({"slug": ESPN_COMPS.get(div) or espn_res.SLUGS.get(div), "id": str(r.get("espn_id"))}
+                             if isinstance(r.get("espn_id"), str) and r.get("espn_id") else None),
                     "btts": round(float(pm["BTTS_SI"]), 4), "vars": vars_,
                     "ctx": {"home": contexto(hist, r.HomeTeam, "L", liga_prom), "away": contexto(hist, r.AwayTeam, "V", liga_prom),
                             "h2h": h2h(hist, r.HomeTeam, r.AwayTeam)},

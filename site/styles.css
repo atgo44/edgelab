@@ -446,3 +446,15 @@ tr.b-pendiente select,tr.b-anulada select{color:var(--mut)}
 .bt-row{grid-template-columns:130px 1fr 90px}
 
 .filters .fl .lnk+.mut{margin:0 2px}
+
+/* marcador en vivo y estado de recomendaciones */
+.score{display:inline-flex;align-items:baseline;gap:5px;padding:1px 8px;border-radius:8px;background:var(--panel2)}
+.score b{font-size:15px;letter-spacing:.02em}
+.score small{font-size:10px;font-weight:800;color:#e5484d;letter-spacing:.04em}
+.score.fin small{color:var(--mut)}
+.score.big{padding:4px 12px}.score.big b{font-size:24px}.score.big small{font-size:12px}
+.mrow .tm .score{margin-bottom:2px}
+.lv{display:inline-block;font-size:10px;font-weight:800;padding:1px 7px;border-radius:99px;margin-left:6px;vertical-align:1px;text-transform:uppercase;letter-spacing:.04em;background:var(--panel2);color:var(--mut)}
+.lv.ok{background:var(--good-bg);color:var(--good)}.lv.ko{background:var(--red-bg);color:var(--red)}
+.combo .cl{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--line2)}
+.combo .cl:first-of-type{border-top:0}
