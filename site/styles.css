@@ -458,3 +458,8 @@ tr.b-pendiente select,tr.b-anulada select{color:var(--mut)}
 .lv.ok{background:var(--good-bg);color:var(--good)}.lv.ko{background:var(--red-bg);color:var(--red)}
 .combo .cl{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--line2)}
 .combo .cl:first-of-type{border-top:0}
+
+/* columna de hora/marcador: ancho según contenido */
+.mrow{grid-template-columns:minmax(44px,auto) minmax(0,1.25fr) minmax(110px,.8fr) minmax(0,1.35fr) 18px}
+@media (max-width:1280px){.mrow{grid-template-columns:minmax(44px,auto) minmax(0,1.2fr) minmax(0,1.3fr) 16px}}
+.score{white-space:nowrap}

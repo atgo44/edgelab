@@ -214,7 +214,7 @@ def partidos(div: str, dias: int):
         try:
             ex = espn_res.proximos(div, set(hist.HomeTeam) | set(hist.AwayTeam), dias)
             if len(ex):
-                ids = {(h, a): i for h, a, i in zip(ex.HomeTeam, ex.AwayTeam, ex.espn_id) if i}
+                ids = espn_res.ids_recientes(div, set(hist.HomeTeam) | set(hist.AwayTeam), dias)
                 fx["espn_id"] = [ids.get((h, a), "") for h, a in zip(fx.HomeTeam, fx.AwayTeam)]
                 ya = set(zip(fx.HomeTeam, fx.AwayTeam))
                 ex = ex[[(h, a) not in ya for h, a in zip(ex.HomeTeam, ex.AwayTeam)]]

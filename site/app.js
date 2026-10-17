@@ -228,7 +228,7 @@ function rowHtml(o){
   const tag=val?`<span class="tag v">Valor +${pc(val.e,1)}</span>`:hot?`<span class="tag w">⚠ edge alto</span>`:'';
   const topTxt=top?`<div class="rc1">${esc(top.cat)}</div><div class="rc2" title="${esc(top.t)}">${esc(top.t)}</div><div style="margin-top:3px">${payPill(top)}</div>`:'';
   return `<button class="mrow ${S.sel===k?'sel':''}" data-k="${esc(k)}" aria-label="${esc(m.home)} contra ${esc(m.away)}">
-    <div class="tm">${m.est==='vivo'&&liveOf(m)?scoreHtml(m):`<b class="num">${horaTxt(m)}</b>`}${m.est==='vivo'?'<span class="live"><i></i>VIVO</span>':tz(m).replace('hora ','')}</div>
+    <div class="tm">${m.est==='vivo'&&liveOf(m)?scoreHtml(m):`<b class="num">${horaTxt(m)}</b>`}${m.est==='vivo'?(liveOf(m)?'':'<span class="live"><i></i>VIVO</span>'):tz(m).replace('hora ','')}</div>
     <div class="tn"><span class="lg">${m.est==='vivo'?'<span class="live"><i></i>EN VIVO</span> ':''}<span class="lgt">${horaTxt(m)} ${tz(m).replace('hora ','')} · </span>${esc(ligaName(m.liga))}${m.casa?' · '+esc(m.casa):''}</span><span>${esc(m.home)}</span><span>${esc(m.away)}</span>
       <div class="mob">${m.est==='vivo'?scoreHtml(m):''}${top?ring(top.p,30)+`<span>${esc(top.t)}</span>${payPill(top)}`:''}</div></div>
     <div class="tri-c">${tri?`<div class="tri" title="Local / Empate / Visita"><i class="a" style="flex-grow:${c['1'].p}"></i><i class="b" style="flex-grow:${c.X.p}"></i><i class="c" style="flex-grow:${c['2'].p}"></i></div>

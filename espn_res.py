@@ -23,6 +23,19 @@ ALIAS = {  # nombre ESPN normalizado -> nombre football-data
     "paris saint germain": "Paris SG", "olympique marseille": "Marseille", "olympique lyonnais": "Lyon",
     "inter milan": "Inter", "internazionale": "Inter", "ac milan": "Milan", "as roma": "Roma",
     "sporting cp": "Sp Lisbon", "sporting lisbon": "Sp Lisbon", "benfica": "Benfica",
+    "hull city": "Hull", "athletic bilbao": "Ath Bilbao", "stade rennais": "Rennes", "feyenoord rotterdam": "Feyenoord",
+    "ajax amsterdam": "Ajax", "psv eindhoven": "PSV Eindhoven", "az alkmaar": "AZ Alkmaar", "stade brestois": "Brest",
+    "stade de reims": "Reims", "rc lens": "Lens", "lille osc": "Lille", "as monaco": "Monaco", "ogc nice": "Nice",
+    "fc porto": "Porto", "sporting braga": "Sp Braga", "vitoria guimaraes": "Guimaraes", "hellas verona": "Verona",
+    "us lecce": "Lecce", "ac monza": "Monza", "torino fc": "Torino", "udinese calcio": "Udinese",
+    "west bromwich albion": "West Brom", "sheffield united": "Sheffield United", "leicester city": "Leicester",
+    "real valladolid": "Valladolid", "cadiz cf": "Cadiz", "rcd mallorca": "Mallorca", "rcd espanyol": "Espanol",
+    "girona fc": "Girona", "getafe cf": "Getafe", "ud las palmas": "Las Palmas", "sevilla fc": "Sevilla",
+    "vfl bochum": "Bochum", "vfl wolfsburg": "Wolfsburg", "1 fc heidenheim": "Heidenheim", "fc st pauli": "St Pauli",
+    "sv werder bremen": "Werder Bremen", "1 fsv mainz 05": "Mainz", "tsg hoffenheim": "Hoffenheim",
+    "sc freiburg": "Freiburg", "fc augsburg": "Augsburg", "sv elversberg": "Elversberg", "hamburg sv": "Hamburg",
+    "1 fc union berlin": "Union Berlin", "sc paderborn 07": "Paderborn", "vfb stuttgart": "Stuttgart",
+    "fc schalke 04": "Schalke 04", "rb leipzig": "RB Leipzig", "bayern munich": "Bayern Munich",
 }
 
 
@@ -40,7 +53,11 @@ def _map(nombre, conocidos, cache):
     if r is None or r not in conocidos:
         mejor, sc = None, 0.0
         for c in conocidos:
-            x = difflib.SequenceMatcher(None, n, _n(c)).ratio()
+            nc = _n(c)
+            x = difflib.SequenceMatcher(None, n, nc).ratio()
+            # "hull" ⊂ "hull city", "ajax" ⊂ "ajax amsterdam": un nombre contenido en el otro como palabra completa
+            if len(nc) >= 4 and (n.startswith(nc + " ") or n.endswith(" " + nc) or nc.startswith(n + " ") or nc.endswith(" " + n)):
+                x = max(x, .9)
             if x > sc:
                 mejor, sc = c, x
         r = mejor if sc >= .72 else None
@@ -119,3 +136,32 @@ def proximos(div: str, conocidos: set, dias: int = 14) -> pd.DataFrame:
         vistos.add((h, a, d))
         out.append({"Date": d, "Time": row["Time"], "HomeTeam": h, "AwayTeam": a, "zona": "lima", "espn_id": row.get("espn_id", "")})
     return pd.DataFrame(out)
+
+
+def ids_recientes(div: str, conocidos: set, dias: int = 14) -> dict:
+    """{(home, away): espn_id} para todos los eventos entre ayer y los próximos días, estén o no empezados.
+    Sirve para que un partido que ya está en juego al generar los datos conserve su id (marcador en vivo)."""
+    slug = SLUGS.get(div)
+    if not slug:
+        return {}
+    y = pd.Timestamp.today().year
+    ev = []
+    for año in {y, y - 1}:
+        try:
+            ev += peru._season(año, max_age_h=0.05, slug=slug)
+        except Exception:
+            pass
+    hoy = pd.Timestamp.today().normalize()
+    out, cache = {}, {}
+    for e in ev:
+        try:
+            row = peru._row(e)
+        except Exception:
+            continue
+        d = row["Date"]
+        if d < hoy - pd.Timedelta(days=1) or d > hoy + pd.Timedelta(days=dias) or not row.get("espn_id"):
+            continue
+        h, a = _map(row["HomeTeam"], conocidos, cache), _map(row["AwayTeam"], conocidos, cache)
+        if h and a and h != a:
+            out[(h, a)] = row["espn_id"]
+    return out
